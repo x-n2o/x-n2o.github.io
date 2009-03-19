@@ -1,0 +1,56 @@
+{
+  "id": 52,
+  "slug": "multithreading",
+  "title": "Multithreading",
+  "publishedAt": "2009-03-19T16:09:48Z",
+  "localDate": "2009-03-19 18:09:48",
+  "updatedAt": "2009-03-19T16:09:48Z",
+  "author": "X-N2O",
+  "categories": [
+    {
+      "name": "Programming",
+      "slug": "programming"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Shared Resource",
+      "slug": "shared-resource"
+    },
+    {
+      "name": "Stack",
+      "slug": "stack"
+    },
+    {
+      "name": "Threads",
+      "slug": "threads"
+    }
+  ],
+  "originalContent": "Making an application multithreaded means having several threads,\nseveral functions running at the same time. This may look simple,\nand not complicated, but there are certain 'problems' that could appear.\nThe most important factor of multithreading is <b>synchronization</b>!\n<!--more-->\nSyncronizing threads means making them organize operations on shared resources.\nShared resources are often global variables or a variable which is pointed\nto by many pointers, each used by a single thread, or a file, etc.\nSo you think \"I can just make this:\"\n[code lang=\"c\"]\n//Globally define\nchar i = 0;\n\nvoid myThread()\n{\n\tFILE *f;\n\t\n\twhile(i)\t\t// While resources are being used\n\t\tSleep(10);\t// Wait\n\ti = 1;\t\t\t// Lock resources so they can't be accessed by other threads\n\tif(f = fopen(&quot;bla.txt&quot;, &quot;wb&quot;))\t// Access resources\n\t\tfclose(f);\t\t\t// Access resources\n\ti = 0; // Unlock resources so other threads can access them\n}\n&lt;/pre&gt;\nBut NO!\nThis cannot be used in threads. Threads CANNOT synchronize by themselves.\nThe reason is simple.\nA thread is waiting to access the resource. In the moment i becomes 0,\nthe thread proceeds to the next line of code. However, in the way that the OS manages threads,\nThe current thread may be stopped for a while to let another thread work.\nThe other thread also finds i to be 0.\nIn this point both threads are at the same code line:\n&lt;b&gt;i = 1;&lt;/b&gt;\nSo this second thread executes fopen, and there is where execution stops for the first thread to resume.\nThe resource is already accessed by the second thread, so when the first thread executes fopen, BANG, it wont access &quot;bla.txt&quot;\nbecause it is already being written by the second thread.\nThis could be fixed with a 'synchronizer' thread, and a stack.\nHere is a basic scheme:\n&lt;pre lang=&quot;c&quot; colla=&quot;+&quot;&gt;\n// The stack is made of char pointers (char *)\n// When the pointers value *p is set to 1 (from 0),\n// the thread that has *p is allowed to access the resource.\n\nvoid syncThread()\n{\n\twhile(TRUE) {\n\t\t// if there are any requests in stack\n\t\tif(!is_stack_empty()) {\n\t\t\tchar *p = stack_pop();\n\t\t\t\n\t\t\tif(p == NULL) // If stack_pop returned NULL, continue with the loop\n\t\t\t\tcontinue;\n\t\t\t*p = 1; // Set *p to 1 (let the thread access the resource)\n\t\t\twhile(*p) // Wait for *p to become 0 again, when *p becomes 0 it indicates that the thread has finished accessing the resource.\n\t\t\t\tSleep(10);\n\t\t\t*p = 1; // Verify that usage of resources ending has been understood\n\t\t}\n\t}\n}\n\nvoid myThread()\n{\n\tFILE *f;\n\tchar local_p = 0;\n\t\n\tstack_push(&amp;local_p); // Add request to the stack\n\twhile(!local_p)\t\t// Wait for syncThread to allow usage of resources\n\t\tSleep(10);\n\tif(f = fopen(&quot;bla.txt&quot;, &quot;wb&quot;))\t// Access resources\n\t\tfclose(f);\t// Access resources\n\tlocal_p = 0; // Set local_p to 0\n\twhile(!local_p) // Wait for syncThread to verify that it has understood that myThread has finished using the resources\n\t\tSleep(10);\n}\n[/code]\n\nAnd that's it, a simple, yet working synchronizing system.\nAnd it's crossplatform too.\nBut we're using windows... It already provides these functions.\nThere are three ways in windows for complete synchronization.\n1. Semaphores\n2. Mutexes\n3. Critical sections\nI will be using mutexes.\nThe functions used are CreateMutex, CloseHandle, WaitForSingleObject and ReleaseMutex.\nPlease refer to the documentation if you want to know the details of these functions.\nFirst of all, we must have a thread creator thread. I prefer to do this in another thread when I'm using GUI's, so I don't block the redrawing & refreshing of the window.\n[code lang=\"c\"]\nHANDLE g_hMutex = NULL;\nvoid initProc()\n{\n\t// First, create the mutex\n\tif((g_lock = CreateMutex(NULL, TRUE, &quot;MYMUTEX__22123&quot;)) == NULL) {\n\t\t// Handle error\n\t\tgoto cleanup;\n\t}\n\t//Since bInitialOwner is TRUE we must release the mutex, so the new created threads can use it.\n\tReleaseMutex(g_lock);\n\t\n\t// ...\n\t\ncleanup:\n\tif(g_lock != NULL)\n\t\tCloseHandle(g_lock);\n}\n[/code]\n\nAlright, so we got ourselves a mutex ready to synchronize the threads.\nI've made these two macros for easiness:\n[code lang=\"c\"]\n#define __xlock() { \n\tif(g_lock != NULL) \n\t\tWaitForSingleObject(g_lock, INFINITE); \n}\n\n#define __xrelease() { \n\tif(g_lock != NULL) \n\t\tReleaseMutex(g_lock); \n}\n[/code]\n\n__xlock() tries to get ownership of g_lock\nIf another thread owns g_lock, WaitForSingleObject waits for the thread to release it, and then it gets the ownership.\nINFINITE means that it will wait infinitely for the other thread to release the mutex.\n\n__xrelease() simply releases the mutex.\n\nWell, this ends it i think. Here is a basic skeleton for multithreading:\n[code lang=\"c\"]\n#define MY_MUTEX_NAME &quot;MYMUTEX__22123&quot;\n#define __xlock() { \n\tif(g_lock != NULL) \n\t\tWaitForSingleObject(g_lock, INFINITE); \n}\n\n#define __xrelease() { \n\tif(g_lock != NULL) \n\t\tReleaseMutex(g_lock); \n}\n\nHANDLE g_lock = NULL;\n\nvoid myThread()\n{\n\tFILE *f;\n\t\n\t__xlock();\n\tif(f = fopen(&quot;bla.txt&quot;, &quot;wb&quot;))\t// Access resources\n\t\tfclose(f);\t\t\t// Access resources\n\t__xrelease();\ncleanup:\n\tCloseHandle(GetCurrentThread());\n}\n\nvoid initProc()\n{\n\tif((g_lock = CreateMutex(NULL, TRUE, MY_MUTEX_NAME)) == NULL) {\n\t\tMessageBox(0, &quot;Could not create mutex.&quot;, &quot;Error!&quot;, MB_OK | MB_ICONERROR);\n\t\tgoto cleanup;\n\t}\n\tReleaseMutex(g_lock);\n\t\n\tCreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)myThread,\n\t\t0, 0, NULL);\n\t\ncleanup:\n\tif(g_lock != NULL)\n\t\tCloseHandle(g_lock);\n}\n\nint main(void)\n{\n\tinitProc();\n\treturn 0;\n}\n[/code]\n\nRemember:\n* When modifying GUI controls always synchronize threads.\n* When modifying files (reading does not count) always synchronize threads.\n* When freeing and allocating memory and storing the address in the same pointer always synchronize threads.\n* When using global variables always synchronize threads.\n* When you see it necessary always synchronize threads. :p\n\nI hope you enjoyed it :)\nFeel free to ask any question.",
+  "comments": [
+    {
+      "id": 3,
+      "parent": 0,
+      "author": "Sierra Skye",
+      "publishedAt": "2009-05-17T20:20:42Z",
+      "localDate": "2009-05-17 21:20:42",
+      "content": "I read your blog in a regular manner, and your way of writing is just awesome.\nPlease keep going, smile\nyour sierra"
+    },
+    {
+      "id": 4,
+      "parent": 0,
+      "author": "Kelly Brown",
+      "publishedAt": "2009-06-12T19:27:30Z",
+      "localDate": "2009-06-12 20:27:30",
+      "content": "Hi, gr8 post thanks for posting. Information is useful!"
+    },
+    {
+      "id": 5,
+      "parent": 0,
+      "author": "Shebaw",
+      "publishedAt": "2010-06-09T16:20:23Z",
+      "localDate": "2010-06-09 18:20:23",
+      "content": "I have been looking for this everywhere, thanks!"
+    }
+  ]
+}
