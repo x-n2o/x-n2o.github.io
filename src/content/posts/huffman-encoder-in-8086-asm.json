@@ -1,0 +1,47 @@
+{
+  "id": 224,
+  "slug": "huffman-encoder-in-8086-asm",
+  "title": "Huffman encoder in 8086 ASM",
+  "publishedAt": "2010-08-24T16:09:19Z",
+  "localDate": "2010-08-24 18:09:19",
+  "updatedAt": "2011-06-17T17:14:38Z",
+  "author": "X-N2O",
+  "categories": [
+    {
+      "name": "Programming",
+      "slug": "programming"
+    }
+  ],
+  "tags": [
+    {
+      "name": "16 bit",
+      "slug": "16-bit"
+    },
+    {
+      "name": "8086",
+      "slug": "8086"
+    },
+    {
+      "name": "asm",
+      "slug": "asm"
+    },
+    {
+      "name": "compression",
+      "slug": "compression-2"
+    },
+    {
+      "name": "dos",
+      "slug": "dos"
+    },
+    {
+      "name": "huffman",
+      "slug": "huffman"
+    },
+    {
+      "name": "huffman coding",
+      "slug": "huffman-coding"
+    }
+  ],
+  "originalContent": "While working on my 8086 emulator, I figured I might write something nice in 8086 assembly as well. This is what I came up with.<!--more--> It's probably not useful to anyone, anyway, here it is:\r\n\r\nThe expected tree for the test string \"1234565\":\r\n<a href=\"http://img801.imageshack.us/img801/212/11082010163.jpg\" target=\"_blank\"><img title=\"Huffman tree\" src=\"http://img801.imageshack.us/img801/212/11082010163.jpg\" alt=\"\" width=\"560\" /></a>\r\n[code lang=\"nasm\"]; assemble with &quot;nasm -f bin huffman.asm -o huffman.com\r\n[bits 16]\r\n[org 100h]\r\n\r\n; initialize frequency array\r\nxor ax, ax\r\nlea di, [freq]\r\nmov cx, 100h\r\nrep stosw\r\n\r\n; initialize tree\r\nlea di, [tree]\r\nmov cx, 400h\r\nrep stosw\r\n\r\n; determine frequency of each character\r\nlea si, [data]\r\nmov cx, 0007h\r\nfreq_loop:\r\nlodsb\r\nmov bx, ax\r\n; no SIB byte… ftl :/\r\nshl bx, 01h\r\ninc word [bx+freq]\r\nshr bx, 01h\r\nloop freq_loop\r\n\r\n; for each character with a frequency != 0 create a leaf node and add it to the queue\r\nlea bp, [tree]\r\nxor bx, bx\r\nmov dx, bx\r\nln_addq_loop:\r\nmov ax, [bx+freq]\r\ntest ax, ax\r\njz ln_addq_nofreq\r\n\r\nshr bx, 01h\r\nmov word [bp], bx ; character 00h through ffh (one byte added for padding)\r\nmov word [bp+02h], ax ; weight\r\nmov word [bp+04h], 0000h ; left node\r\nmov word [bp+06h], 0000h ; right node\r\nshl bx, 01h\r\n\r\ncall pq_push\r\nadd bp, 08h\r\n\r\nln_addq_nofreq:\r\nadd bx, 02h\r\ncmp bx, 0200h\r\njl ln_addq_loop\r\n\r\ntree_create_loop:\r\ncmp word [queue_size], 0001h\r\nje tree_create_exit_loop\r\n\r\nmov word [bp], 0000h ; character (not used in internal nodes)\r\nmov word [bp+02h], 0000h ; weight\r\n\r\ncall pq_pop\r\nmov word [bp+04h], ax ; left node\r\nmov bx, ax\r\nmov bx, [bx+02h]\r\nadd [bp+02h], bx ; add to weight\r\n\r\ncall pq_pop\r\nmov word [bp+06h], ax ; right node\r\nmov bx, ax\r\nmov bx, [bx+02h]\r\nadd [bp+02h], bx ; add to weight\r\n\r\ncall pq_push\r\nadd bp, 08h\r\n\r\njmp tree_create_loop\r\ntree_create_exit_loop:\r\n\r\nxor cx, cx\r\nxor dx, dx\r\npush word [pqueue]\r\ncall build_alpha\r\n\r\nmov cx, 0007h\r\nlea si, [data]\r\nprint_bstream:\r\nmov bp, [pqueue]\r\nlodsb\r\nmov ah, 02h\r\nmov dl, al\r\nint 21h\r\npush ax\r\nmov dl, 20h\r\nint 21h\r\npop ax\r\nxor ah, ah\r\nshl ax, 1\r\nlea bx, [alpha]\r\nadd bx, ax\r\nmov bx, [bx]\r\nbstream_byte_loop:\r\nxor dx, dx\r\nor dx, [bp+04h]\r\nor dx, [bp+06h]\r\ntest dx, dx\r\njz bstream_byte_loop_end\r\n\r\nmov dl, 30h\r\ntest bl, 01h\r\njnz bs_right\r\n\r\nbs_left:\r\nmov bp, [bp+04h]\r\njmp bs_next\r\n\r\nbs_right:\r\ninc dl\r\nmov bp, [bp+06h]\r\n\r\nbs_next:\r\nshr bl, 01h\r\nmov ah, 02h\r\nint 21h\r\njmp bstream_byte_loop\r\nbstream_byte_loop_end:\r\nmov ah, 09h\r\nlea dx, [nl]\r\nint 21h\r\nloop print_bstream\r\n\r\nxor ah, ah\r\nint 21h\r\n\r\n; node address should be stored in DS:BP\r\npq_push:\r\npush bx\r\nmov bx, [queue_size]\r\nshl bx, 1\r\nlea bx, [bx+pqueue]\r\nmov [bx], bp\r\ninc word [queue_size]\r\ncall pq_sort\r\npop bx\r\nret\r\n\r\n; node address will be returned in DS:AX\r\npq_pop:\r\npush bx\r\nmov bx, [queue_size]\r\ntest bx, bx\r\njz pop_nel\r\n\r\ndec bx\r\nmov [queue_size], bx\r\nshl bx, 01h\r\nmov ax, [bx+pqueue]\r\n\r\npop_nel:\r\npop bx\r\nret\r\n\r\n; bubble-sort lulz\r\npq_sort:\r\ncmp word [queue_size], 0002h\r\njl nel\r\n\r\npusha\r\n\r\npq_sort_ml:\r\nxor dx, dx\r\nlea bx, [pqueue]\r\nmov cx, [queue_size]\r\ndec cx\r\npq_sort_il:\r\nmov bp, [bx]\r\nmov ax, [bp+02h]\r\n\r\nmov bp, [bx+02h]\r\nmov bp, [bp+02h]\r\n\r\ncmp ax, bp\r\njnl noswap\r\n\r\nmov ax, [bx]\r\nmov bp, [bx+02h]\r\nmov [bx], bp\r\nmov [bx+02h], ax\r\nmov dx, 01h\r\n\r\nnoswap:\r\nadd bx, 02h\r\nloop pq_sort_il\r\n\r\ntest dx, dx\r\njnz pq_sort_ml\r\n\r\npopa\r\n\r\nnel:\r\nret\r\n\r\nbuild_alpha:\r\nmov bx, sp\r\nmov bx, [bx+02h]\r\n\r\nba_recurseLeft:\r\nmov ax, [bx+04h]\r\ntest ax, ax\r\njz ba_recurseRight\r\n\r\nba_recursLeft:\r\npusha\r\ninc cx\r\nshr dx, 01h\r\npush ax\r\ncall build_alpha\r\npop ax\r\npopa\r\n\r\nba_recurseRight:\r\nmov ax, [bx+06h]\r\ntest ax, ax\r\njz ba_finish\r\n\r\npusha\r\ninc cx\r\nshr dx, 01h\r\nor dx, 80h\r\npush ax\r\ncall build_alpha\r\npop ax\r\npopa\r\n\r\njmp ba_end\r\n\r\nba_finish:\r\nmov ax, [bx+04h]\r\ntest ax, ax\r\njnz ba_end\r\n\r\nmov bx, [bx]\r\nmov ax, 0008h\r\nsub ax, cx\r\nxchg ax, cx\r\nshr dx, cl\r\nshl bx, 01h\r\nmov [bx+alpha], dx\r\nshr bx, 01h\r\n\r\nba_end:\r\nret\r\n\r\ndata db ’1′, ’2′, ’3′, ’4′, ’5′, ’6′, ’5′\r\nqueue_size dw 0000h\r\nnl db 0dh, 0ah, ‘$’\r\n\r\n[section .bss]\r\nalpha:\r\nfreq resw 100h\r\ntree resd 200h\r\npqueue resw 100h[/code]",
+  "comments": []
+}
