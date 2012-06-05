@@ -1,0 +1,76 @@
+{
+  "id": 282,
+  "slug": "bin400-dc20",
+  "title": "DEFCON 20 CTF Quals B400 writeup",
+  "publishedAt": "2012-06-05T04:00:02Z",
+  "localDate": "2012-06-05 05:00:02",
+  "updatedAt": "2012-06-08T06:15:20Z",
+  "author": "X-N2O",
+  "categories": [
+    {
+      "name": "Writeups",
+      "slug": "writeups"
+    },
+    {
+      "name": "Reverse Engineering",
+      "slug": "reversing"
+    },
+    {
+      "name": "DEFCON",
+      "slug": "defcon"
+    }
+  ],
+  "tags": [
+    {
+      "name": "writeup",
+      "slug": "writeup"
+    },
+    {
+      "name": "DEFCON",
+      "slug": "defcon"
+    },
+    {
+      "name": "FreeBSD",
+      "slug": "freebsd"
+    },
+    {
+      "name": "decompiled",
+      "slug": "decompiled"
+    },
+    {
+      "name": "x86_64",
+      "slug": "x86_64"
+    },
+    {
+      "name": "binary",
+      "slug": "binary"
+    },
+    {
+      "name": "Reverse Engineering",
+      "slug": "reversing"
+    },
+    {
+      "name": "CTF",
+      "slug": "ctf"
+    }
+  ],
+  "originalContent": "This weekend I had the best time playing the DEFCON 20 CTF Quals with Sapheads. My favorite challenges were B400 (for which this writeup is about) and PP300, where t1g3r and I had to come up with some shellcode designed to be resistant to sorting. We did good overall and ended 33rd. We got 2600 points - twice as much as last year, for which I'm very happy about, considering the small size of our team.\r\n<!--more-->\r\n<a href=\"http://ddtek.biz/qualsDC20scoreboard.html\">DEFCON 20 CTF Quals scoreboard</a>\r\n\r\n<h3>The Writeup</h3>\r\nText version: <a href=\"http://x-n2o.com/bin400-dc20.txt\">http://x-n2o.com/bin400-dc20.txt</a>\r\n\r\n\"No takebacks! Running on 140.197.217.239:11553\"\r\nDownload: <a href=\"https://dl.dropbox.com/s/2skec92baa37f4y/bin400-b5033d3f7205b1996d220df61bf0f25a?dl=1\">bin400-b5033d3f7205b1996d220df61bf0f25a</a>\r\n\r\n[code]\r\n$ file bin400-b5033d3f7205b1996d220df61bf0f25a\r\nbin400-b5033d3f7205b1996d220df61bf0f25a: ELF 64-bit LSB executable, x86-64, version 1 (FreeBSD), dynamically linked (uses shared libs), for FreeBSD 9.0 (900044), stripped\r\n[/code]\r\nAnalyzing the binary in IDA, we see that it's a fork server like most of the other binaries running on DDTEK's servers. The general structure is the same: bind and listen on port 11553, fork on accept() and call the client handler callback (4017F0).\r\n\r\nBelow is the hand decompiled client handler callback:\r\n[code lang=\"c\"]\r\n/* http://x-n2o.com/bin400-dc20_decomp.c */\r\n/* http://x-n2o.com/bin400-dc20          */\r\n\r\nint send_full(int fd, char *buf, size_t n); /* @ 401370 */\r\nint recv_full(int fd, char *buf, size_t n); /* @ 401470 */\r\nint client_cb(int fd);                      /* @ 4017F0 */\r\n\r\nint client_cb(int fd)\r\n{\r\n\tuint *a;\r\n\tint auth;\r\n\t\r\n\t/* client authentication sequence 1 */\r\n\ta = malloc(sizeof(uint));\r\n\tif(a == NULL)\r\n\t\texit(0);\r\n\trecv_full(fd, a, sizeof(uint));\r\n\tauth = little_endian(*a);\r\n\tfree(a);\r\n\tif(auth != 0x53794550)\r\n\t\treturn 0;\r\n\t\r\n\t/* client authentication sequence 2 */\r\n\ta = malloc(sizeof(uint));\r\n\tif(a == NULL)\r\n\t\texit(0);\r\n\trecv_full(fd, a, sizeof(uint));\r\n\tauth = little_endian(*a);\r\n\tfree(a);\r\n\tif(auth != 0x4a75402c)\r\n\t\treturn 0;\r\n\t\r\n\t/* client authentication sequence 3 */\r\n\ta = malloc(sizeof(uint));\r\n\tif(a == NULL)\r\n\t\texit(0);\r\n\trecv_full(fd, a, sizeof(uint));\r\n\tauth = little_endian(*a);\r\n\tfree(a);\r\n\tif(auth != 0x03818a37)\r\n\t\treturn 0;\r\n\t\r\n\t/* client authentication sequence 4 */\r\n\ta = malloc(sizeof(uint));\r\n\tif(a == NULL)\r\n\t\texit(0);\r\n\trecv_full(fd, a, sizeof(uint));\r\n\tauth = little_endian(*a);\r\n\tfree(a);\r\n\tif(auth != 0xacf7bc51)\r\n\t\treturn 0;\r\n\t\r\n\t/* generation loop count */\r\n\tint count;\r\n\t\r\n\ta = malloc(sizeof(uint));\r\n\tif(a == NULL)\r\n\t\texit(0);\r\n\trecv_full(fd, a, sizeof(uint));\r\n\tcount = little_endian(*a);\r\n\tfree(a);\r\n\tif(count == 0)\r\n\t\treturn -2;\r\n\t\r\n\t/* qword generation loop - most important */\r\n\tint last_shift, shift;\r\n\tu64 gen;\r\n\tint i;\r\n\t\r\n\tlast_shift = 0;\r\n\tgen = 0;\r\n\tfor(i = 0; i != count; i++) {\r\n\t\ta = malloc(sizeof(uint));\r\n\t\tif(a == NULL)\r\n\t\t\texit(0);\r\n\t\trecv_full(fd, a, sizeof(uint));\r\n\t\tshift = little_endian(*a);\r\n\t\tfree(a);\r\n\t\t\r\n\t\tif(shift &gt; 63)\r\n\t\t\treturn -1;\r\n\t\t\r\n\t\tif(last != -1) {\r\n\t\t\tint valid;\r\n\t\t\t\r\n\t\t\tswitch(shift - last_shift)\r\n\t\t\t{\r\n\t\t\t\tcase -17: valid = last_shift % 8  &gt; 0; break;\r\n\t\t\t\tcase -15: valid = last_shift % 8 &lt;= 6; break;\r\n\t\t\t\tcase -10: valid = last_shift % 8  &gt; 1; break; \r\n\t\t\t\tcase -6:  valid = last_shift % 8 &lt;= 5; break;\r\n\t\t\t\tcase +6:  valid = last_shift % 8  &gt; 1; break;\r\n\t\t\t\tcase +10: valid = last_shift % 8 &lt;= 5; break;\r\n\t\t\t\tcase +15: valid = last_shift % 8  &gt; 0; break;\r\n\t\t\t\tcase +17: valid = last_shift % 8 &lt;= 6; break;\r\n\t\t\t\tdefault: return -1;\r\n\t\t\t}\r\n\t\t\t\r\n\t\t\tif(!valid)\r\n\t\t\t\treturn -1;\r\n\t\t}\r\n\t\t\r\n\t\tgen ^= 1 &lt;&lt; shift;\r\n\t\tlast_shift = shift;\r\n\t}\r\n\t\r\n\tfor(i = 0; gen != 0; i++)\r\n\t\tgen &amp;= gen - 1;\r\n\t\r\n\tif(i != 64)\r\n\t\treturn -2;\r\n\t\r\n\t/* read and send key to client */\r\n\tFILE *fp;\r\n\tchar *key;\r\n\tlong klen;\r\n\t\r\n\tfp = fopen(&quot;key&quot;, &quot;r&quot;);\r\n\tif(fp == NULL)\r\n\t\treturn 0;\r\n\tfseek(fp, 0, SEEK_END);\r\n\tklen = ftell(fp);\r\n\trewind(fp);\r\n\tk = calloc(1, klen);\r\n\tif(fread(k, 1, klen, fp) != klen)\r\n\t\treturn 0;\r\n\tfclose(fp);\r\n\tsend_full(fd, key, klen);\r\n\t\r\n\treturn 0;\r\n}\r\n[/code]\r\n\r\n<h3>The problem</h3>\r\nOur objective is to reach the final part of the subroutine, and have the key sent to us.\r\nThe final check requires the loop below to be executed 64 times.\r\n[code lang=\"c\"]\r\nfor(i = 0; gen != 0; i++)\r\n\tgen &amp;= gen - 1;\r\n[/code]\r\nWe observe that for different values of gen, the number of times the loop will have executed is equal to the number of set bits in gen.\r\nIt only makes sense that for the loop to execute 64 times all bits must be set, since it's a qword (64-bits) :)\r\n(For various interpretations of similar bit twiddling hacks, see <a href=\"#bit_twiddling_hacks\">[1]</a>, <a href=\"#hackers_delight\">[2]</a>)\r\n\r\nThe core of the problem now becomes setting all bits of the qword. This brings us to the main loop of the subroutine - the qword generation loop. Every iteration of this loop flips a certain bit in the qword:\r\n[code lang=\"c\"]\r\ngen ^= 1 &lt;&lt; shift;\r\n[/code]\r\nThe value of shift (bit position to be flipped) is controlled by us. The loop starts with the qword having all bits cleared, so as long as we flip each bit once, we will obtain our desired qword with all bits set.\r\nThe pitfall here is that we can select only the first bit position arbitrarily. The subsequent bit positions will have to be a certain offset from the last one sent. As we see in the switch statement, the allowed offsets are -17, -15, -10, -6, +6, +10, +15, +17. Moreover every offset has a set of allowed values of the last shift modulo 8 (a whitelist, if you will :).\r\n\r\nAt this point our problem has turned into a very difficult graph theory problem (if we consider every bit as a node in a graph). I tried to come up with an algorithm to traverse all the nodes, but it was quite difficult and after a few hours I was baffled and decided to try to find an alternate solution. Changing the offsets is impossible, but perhaps one could bypass the second restriction (last_shift % 8) and pick offsets as one sees fit.\r\n\r\n<h3>The solution</h3>\r\nIt turns out that you can completely bypass this restriction for certain offsets and use any combination of them as desired. The key here is that the shift value is signed. It is possible for us to send a negative shift value since no checks are made against it. This means that the remainder (last_shift % 8) can be made negative. This can bypass the second restriction checks for the following offsets in the switch statement:\r\n[code lang=\"c\"]\r\ncase -15: valid = last_shift % 8 &lt;= 6; break; \r\ncase -6:  valid = last_shift % 8 &lt;= 5; break;\r\ncase +10: valid = last_shift % 8 &lt;= 5; break;\r\ncase +17: valid = last_shift % 8 &lt;= 6; break;\r\n[/code]\r\nWe can use any combination of these offsets for as long as the shift remains negative.\r\nThere are many offset sequences one can come up with that will lead to our objective. One such sequence can be obtained by using solely offset -15 or offset +17. These are indeed the most efficient sequences since they are the smallest. We only have to send 63 (either all -15 or all +17) offsets plus the initial shift value, which lead to 64 bit flips in total.\r\nHow can we be sure that a different bit will be flipped each time?\r\nAs it turns out, both -15 and +17 are additive generators modulo 64, because they are both relatively prime to 64 (gcd(-15, 64) = 1 and gcd(+17, 64) = 1).\r\nThis means that after n * (-15) or n * (+17) additions of (-15) or (+17) we will have generated all numbers in [0 .. 63].\r\nSince shifts are analogous to additions and numbers [0 .. 63] to bit positions, and since shifts in x86_64 work in a modular fashion, we can use this property to our advantage.\r\nThe number n is 64, which we observe in the following congruences:\r\n[code]\r\nx - 15 * n = x (mod 64)\r\nx + 17 * n = x (mod 64)\r\n[/code]\r\nwhere x is the starting number. Since we already stated that -15 and +17 are relatively prime, n can only be 64. In reality we only need 63 shifts with this offset, since the starting bit is preset. This makes the loop count 63 + 1 = 64\r\n\r\nThere are two slight restrictions to the initial shift, if our selected sequence is to leave the last shift always negative. We define the 'safe' range of the initial number for offset -15 as [-2^31 + 15 * 63 .. -1], and for offset +17 as [-2^31 .. -1 - 17 * 63].\r\n\r\nAs you can see, received data is treated as big endian, hence the need for conversion to little endian.\r\n1. 4 hardcoded authentication dwords\r\n2. loop count dword\r\n3. 63 consecutive shift dwords with the selected offset applied (either all -15 or all +17)\r\n\r\n<h3>Working pwnie</h3>\r\n[code lang=\"python\"]\r\n#!/usr/bin/env python\r\n\r\n# http://x-n2o.com/bin400-dc20_pwn.py\r\n# http://x-n2o.com/bin400-dc20\r\n\r\nimport socket\r\nimport struct\r\n\r\n# HOST = &quot;140.197.217.239&quot;\r\nHOST = &quot;localhost&quot;\r\nPORT = 11553\r\n\r\ndef dword(a):\r\n\treturn struct.pack(&quot;&gt;I&quot;, a) # big-endian\r\n\r\ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\r\ns.connect((HOST, PORT))\r\n\r\n# auth dwords\r\ns.send(dword(0x53794550))\r\ns.send(dword(0x4A75402C))\r\ns.send(dword(0x03818A37))\r\ns.send(dword(0xACF7BC51))\r\n\r\n# loop count\r\ns.send(dword(64))\r\n\r\n# initial shift\r\nshift = -65536\r\ns.send(dword(shift))\r\n\r\n# shifts with offset +17 applied\r\nfor i in range(0, 63):\r\n\tshift += 17\r\n\ts.send(dword(shift))\r\n\r\nprint s.recv(8192)\r\n\r\ns.close()\r\n[/code]\r\n\r\n~ X-N2O\r\n\r\n<a name=\"bit_twiddling_hacks\" href=\"http://graphics.stanford.edu/~seander/bithacks.html\">[1] Bit Twiddling Hacks</a>\r\n<a name=\"hackers_delight\" href=\"http://hackersdelight.org\">[2] Hacker's Delight</a>",
+  "comments": [
+    {
+      "id": 3853,
+      "parent": 0,
+      "author": "Nx9",
+      "publishedAt": "2012-06-07T13:41:17Z",
+      "localDate": "2012-06-07 14:41:17",
+      "content": "Awesome write-up man ! Hats off to you and your team ! :)"
+    },
+    {
+      "id": 3973,
+      "parent": 0,
+      "author": "Jordan",
+      "publishedAt": "2012-06-16T04:43:23Z",
+      "localDate": "2012-06-16 05:43:23",
+      "content": "FYI -- I believe the original problem is actually the Knight's Tour challenge. Not sure if the negative solution was intended or not, but nice work!"
+    }
+  ]
+}
