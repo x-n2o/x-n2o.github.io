@@ -83,6 +83,8 @@ for (const file of files.filter(p => p.endsWith('.html'))) {
   assert.ok(!text.match(/http:\/\/localhost|google-analytics\.com|wp-admin/), `Legacy runtime URL in ${file}`);
 }
 const rss = load(await readFile('dist/rss.xml','utf8'), {xmlMode:true});
+assert.equal(await readFile('dist/feed/index.html','utf8'), await readFile('dist/rss.xml','utf8'), 'Legacy post feed differs from canonical XML');
+assert.equal(await readFile('dist/comments/feed/index.html','utf8'), await readFile('dist/comments.xml','utf8'), 'Legacy comment feed differs from canonical XML');
 assert.equal(rss('item').length, manifest.posts.length);
 assert.deepEqual(rss('item pubDate').toArray().map(el => new Date(rss(el).text()).toISOString()).sort(), manifest.posts.map(p => new Date(p.publishedAt).toISOString()).sort());
 const commentFeed = load(await readFile('dist/comments.xml','utf8'), {xmlMode:true});
