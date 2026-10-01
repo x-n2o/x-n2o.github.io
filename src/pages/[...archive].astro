@@ -1,0 +1,25 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PostList from '../components/PostList.astro';
+import { posts, categories, tags, type Post } from '../lib/posts';
+export function getStaticPaths() {
+  const paths: { params: { archive: string }; props: { title: string; entries: Post[] } }[] = [];
+  for (const [prefix, terms, field] of [['category', categories, 'categories'], ['tag', tags, 'tags']] as const) {
+    for (const term of terms) paths.push({ params: { archive:`${prefix}/${term.slug}` }, props: { title:term.name, entries:posts.filter(p => p[field].some(t => t.slug === term.slug)) } });
+  }
+  const months = [...new Set(posts.map(p => p.localDate.slice(0, 7)))];
+  for (const month of months) paths.push({ params:{ archive:month.replace('-', '/') }, props:{
+    title:new Intl.DateTimeFormat('en-GB', { month:'long',year:'numeric',timeZone:'UTC' }).format(new Date(`${month}-01T12:00:00Z`)),
+    entries:posts.filter(p => p.localDate.startsWith(month)),
+  } });
+  for (const year of new Set(posts.map(p => p.localDate.slice(0, 4)))) paths.push({ params:{ archive:year },props:{title:year,entries:posts.filter(p => p.localDate.startsWith(year))} });
+  return paths;
+}
+const { title, entries } = Astro.props;
+---
+<Layout title={title}>
+  <section class="wrap archive-content">
+    <header class="page-heading"><a class="back-link" href="/archive/">← The archive</a><p class="eyebrow">{entries.length} {entries.length === 1 ? 'note' : 'notes'}</p><h1>{title}</h1></header>
+    <PostList posts={entries} />
+  </section>
+</Layout>

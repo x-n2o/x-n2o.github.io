@@ -1,0 +1,16 @@
+---
+import { formatDate, excerpt, readingTime, type Post } from '../lib/posts';
+interface Props { posts: Post[]; searchable?: boolean; }
+const { posts, searchable = false } = Astro.props;
+---
+<div class="post-list">
+  {posts.map((post, i) => <article class="post-row" data-search={searchable ? `${post.title} ${post.categories.map(c => c.name).join(' ')} ${post.tags.map(t => t.name).join(' ')} ${excerpt(post)}`.toLowerCase() : undefined}>
+    <span class="post-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+    <div class="post-row-body">
+      <div class="post-meta"><time datetime={post.publishedAt}>{formatDate(post.localDate)}</time><span class="meta-separator">/</span><span>{readingTime(post)} min read</span></div>
+      <h2><a href={`/${post.slug}/`}>{post.title}<span class="post-arrow" aria-hidden="true">↗</span></a></h2>
+      <p>{excerpt(post)}</p>
+      <div class="post-categories">{post.categories.map(c => <a href={`/category/${c.slug}/`}>{c.name}</a>)}</div>
+    </div>
+  </article>)}
+</div>

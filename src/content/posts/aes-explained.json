@@ -1,0 +1,228 @@
+{
+  "id": 165,
+  "slug": "aes-explained",
+  "title": "AES Explained",
+  "publishedAt": "2009-11-22T18:19:50Z",
+  "localDate": "2009-11-22 19:19:50",
+  "updatedAt": "2012-03-10T12:39:09Z",
+  "author": "X-N2O",
+  "categories": [
+    {
+      "name": "Programming",
+      "slug": "programming"
+    },
+    {
+      "name": "Cryptography",
+      "slug": "cryptography"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Advanced Encryption Standard",
+      "slug": "advanced-encryption-standard"
+    },
+    {
+      "name": "AES",
+      "slug": "aes"
+    },
+    {
+      "name": "Block Cipher",
+      "slug": "block-cipher"
+    },
+    {
+      "name": "C Implementation",
+      "slug": "c-implementation"
+    },
+    {
+      "name": "field generator",
+      "slug": "field-generator"
+    },
+    {
+      "name": "Finite Field",
+      "slug": "finite-field"
+    },
+    {
+      "name": "Galois Field",
+      "slug": "galois-field"
+    },
+    {
+      "name": "inverse logarithm",
+      "slug": "inverse-logarithm"
+    },
+    {
+      "name": "logarithm table",
+      "slug": "logarithm-table"
+    },
+    {
+      "name": "Rijndael",
+      "slug": "rijndael"
+    },
+    {
+      "name": "SBOX",
+      "slug": "sbox"
+    }
+  ],
+  "originalContent": "Hello people,\r\nIt's been a while since I have last posted an article. I decided to write an article about the Advanced Encryption Standard. I will explain certain concepts regarding AES and how it basically works. I will provide step by step C code, to make it even easier to understand. You can find the full source code at the end of this article. Actually many websites around the net provide source code for AES. This one is supposed to be easy to understand ;)<!--more-->\r\n<h3>What is AES?</h3>\r\nAES is a cryptographic algorithm, more specifically a symmetric block cipher. This means that it operates at a block of data, instead of a single element per iteriation. (This element could be a bit or a byte). AES is also known as Rijndael. Actually AES is just a variant of Rijndael. To read more about AES/Rijndael see <a href=\"http://en.wikipedia.org/wiki/Advanced_Encryption_Standard\" target=\"_blank\">http://en.wikipedia.org/wiki/Advanced_Encryption_Standard</a>. Especially the links at the bottom, they help understanding the basic structure of AES. AES is able to encrypt and decrypt a block of data using a key. The key and the block of data (from now on, the input) have a fixed length. The input is always 128-bit (16 bytes), while the key can be 128-bit, 192-bit or 256-bit (16, 24 and 32 bytes respectively). What makes AES so good you say? The answer would be it's security and speed. It's obviously secure since it's been chosen by NIST. Then again, no one has been able to break it. And finally, it's fast because it's arithmetic is based on XOR operations and bit shifts, which CPUs like a lot. That said, it's also simple and even faster to implement in hardware.\r\n<h3>AES Concepts</h3>\r\nBefore I begin talking about the cipher itself, there are some very important concepts that I need to explain. They're basically the math behind AES. Everything else is easy. This is actually the hardest part. Why am I explaining the hardest part before the everything else? Because if you don't understand this, you won't be able to understand the rest of this article. Of course, if you just want the source code, skip to the end. The content below may refer to the specification, which is located here: <a href=\"http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf\" target=\"_blank\">http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf</a>\r\n<h4>Finite Field Arithmetic</h4>\r\nThe addition and multiplication in AES isn't exactly the same as the one you use everyday. AES operates over a finite field (aka. Galois Field), denoted gf(p^n), where p is a prime number and n is the exponent (which in this case is a natural number &gt; 0). There are two kinds of finite fields: primitive fields and extension fields. Primitive fields are those finite fields in which the exponent n is 1. In primitive fields all the elements can be represented normally, ie: gf(2) = { 0, 1, }, gf(3) = { 0, 1, 2, }, etc... Extension fields are those finite fields in which the exponent n is greater than 1. In extension fields an element can be represented as a polynomial P(x) with coefficients in gf(p), ie: gf(2^2) = { 0, 1, x, x+1, }. gf(2^2) has 2^2 (four) elements, 0 through 3, which are represented as polynomials P(x). To get the actual value of an element, you simply replace x with p. That is, P(2), so that x = 2 and x+1 = 2+1 = 3. There you go, { 0, 1, 2, 3,  }.\r\n\r\nBut how is addition and multiplication actually done? Well, addition is simply a + b = c (mod p). Oh by the way, AES operates over gf(2^8), and it makes sense, since a byte is eight bits. So, p = 2 and n = 8, and that brings us to a + b = c (mod 2). Let's try and see how 0 and 1 are added. 0+0 = 0 (mod 2), 0+1 = 1 (mod 2), 1+0 = 1 (mod 2), 1 + 1 = 0 (mod 2) (1 + 1 = 2, 2 /2 = 0 and we take the remainder, which is 0). What can we see from this? The addition in this field has the characteristics of an XOR operation. XOR in hardware is very fast by the way. So to add two polynomials, we simply add the coefficients, divide them by 2 and get the remainder (ie: 1x +1 x + 1x + 1x^2 + 1 = 1x^2 + 3x + 1 -&gt; 1 / 2 = 0, remainder = 1, 3 / 2 = 1, remainder = 1, 1 / 2 = 0, remainder = 1, and that gives us x^2 + x + 1), or simply XOR directly (ie: 1x XOR 1x XOR 1x XOR 1x^2 XOR 3x XOR 1 = x^2 + x + 1).\r\n\r\nNow, multiplication. Multiplication is harder than addition, in extension fields. In primitive fields you simply do a * b = c (mod p). Meaning you simply do the multiplication and then divide and get the remainder. However, we're not that lucky, since AES operates over gf(2^8), which is an extension field. In an extension field, you do a * b = c (mod m(x)), where m(x) is a specified polynomial. This means that instead of dividing by 2, you simpy divide by m(x). m(x) for AES is specified as x^8 + x^4 + x^3 + x + 1, which is 0x11b in hexadecimal notation. Why is it of degree eight? Because the maximal degree that a polynomial of multiplication of bytes (8 bits) can be is 15 (11111111 times 11111111 is 1111111000000001 in binary notation). For that to be represented in one byte (8 bits, degree 7), it needs to be divided by a polynomial of degree 15-7 which is 8. That is the purpose of m(x).  An example of this multiplication is shown in the specification, page 11. It will be implemented when constructing the logarithm tables later.\r\n\r\nWhat I just explained operates simply on a byte level. The specification specifies another kind of arithmetic which operates on a word level. (A word is 32-bit or 4 bytes and is represented as a = [a0, a1, a2, a3], where a is a word and a0, a1, a2, a3 are bytes). Addition is again very simple. c = a XOR b -&gt; c0 = a0 XOR b0, c1 = a1 XOR b1, c2 = a2 XOR b2, c3 = a3 XOR b3. While multiplication is a bit complicated. There is another reduction polynomial for word level multiplication, which is x^4 + 1. a, b and c are now represented as polynomials P(x), but in this case, x represents a byte, not a bit. so, c = a * b -&gt; (a3x^3 + a2x^2 + a1x + a0) times (b3x^3 + b2x^2 + b1x + b0) the product of which is really long, and it's a sixth degree polynomial. However, we don't have to implement all this, including the new reduction polynomial, in code. We do the polynomial division against the reduction polynomial (x^4 + 1) and we get the result in pen and paper. The specification shows what value each byte should have, in page 12.\r\n<h4>Generators and logarithm tables</h4>\r\nIn a finite field, if a number in this field is multiplied several times with itself, after p^n multiplications, and it will have produced (generated) all the elements of the field, this number is called a generator. What might we need generators for? We need them for making logarithm tables. If you want to know how to find generators in a finite field, you can find information about it in the book Applied Cryptography, by Bruce Schneier. A generator for gf(2^8) is (x+1) or 0x03 in hexadecimal notation. We begin with 1. 3 is multiplied by itself zero times, the result is 1 (3^0). The (base 3) logarithm of 1 is 0. We also store it in an inverse table, the inverse (base 3) logarithm of 0 is 1. Then we multiply it with itself, from 3^0 it is now 3^1 which is 3. The (base 3) logarithm of 3 is 1. The inverse (base 3) logarithm of 1 is 3. And so on, until we reach the 256-th iteriation. Here things get complicated, since we have the number 1 again. This time with a different exponent, being 0xff. This will overwrite the first value, so we actually iterate to 255, instead of 256. Note that 0xff is still a perfectly valid logarithm, and we're going to use it later for finding the modular multiplicative inverse of numbers in gf(2^8).\r\n\r\nOk, so now we've got our logarithm and inverse logarithm tables. What do we actually need them for? There are two situations in which these tables are used. The first, and least important is fast multiplication. By trading off memory (512 bytes of memory) for speed, we can actually use these as look-up tables. How? Simple. The logarithm of A times B is also the logarithm of A plus the logarithm of B. So, if we know A and B we can find out the sum of their logarithms (modulo 255). Now that is equivalent to log(A times B). But that's not what we want. We want A times B, not it's logarithm. Simple. We use the inverse logarithm table. A times B = ilog(log(A times B)).\r\n\r\nThis could also be done manually every time, but this way it's faster. The next, and most important situation is where we need to find the modular multiplicative inverse. With \"real\" numbers it's just b = 1/a (where we want to find the multiplicative inverse of a, denoted b), which is equivalent to a * b = 1. The modular multiplicative inverse is simply that equation modulo a number, which in this case is 0x11b. So we need to find a number b that when multiplied with a, modulo 0x11b, the product is 1. This could be a simple and very inefficient brute force search. Or this could be a division made with our logarithm tables. If multiplication was A*B = ilog(log(A)+log(B)), division is A/B = ilog(log(A)-log(B)). We want b = 1/a so we do b = ilog(log(1)-log(a)). But, we have two values for log(1). The first is 3 (which was our generator itself, 3^1 (mod 0x11b), and the second is 0xff. Which one do we use? That's right, we use the biggest one, 0xff. That is, because if we use 3, and log(a) is greater than 3, we will have a negative logarithm. And there is no such number that gives that logarithm in our finite field gf(2^8).\r\n\r\nHere is some code for multiplying and finding the modular multiplicative inverse. The code for building the logt and ilogt tables is given in aes_init.\r\n\r\n<pre class=\"brush:c\">// Any number multiplied with 0 is 0, that's a special case\r\n// The inverse of 0 (1/0) doesn't exist, and is defined as 0\r\n#define aes_mul(a, b) ((a)&&(b)?g_aes_ilogt[(g_aes_logt[(a)]+g_aes_logt[(b)])%0xff]:0)\r\n#define aes_inv(a)    ((a)?g_aes_ilogt[0xff-g_aes_logt[(a)]]:0)\r\n#define AES_RPOL      0x011b // reduction polynomial (x^8 + x^4 + x^3 + x + 1)\r\n\r\nunsigned char g_aes_logt[256], g_aes_ilogt[256];\r\n\r\ninline unsigned char aes_mul_manual(unsigned char a, unsigned char b)\r\n{\r\n\tregister unsigned short ac;\r\n\tregister unsigned char ret;\r\n\r\n\tac = a;\r\n\tret = 0;\r\n\twhile(b) {\r\n\t\tif(b & 0x01)\r\n\t\t\tret ^= ac;\r\n\t\tac <<= 1;\r\n\t\tb >>= 1;\r\n\t\tif(ac & 0x0100)\r\n\t\t\tac ^= AES_RPOL;\r\n\t}\r\n\r\n\treturn ret;\r\n}</pre>\r\n\r\nAnd that's about the maths behind AES. Now off to the actual algorithm.\r\n<h4>Initializing AES</h4>\r\nWe will not be hardcoding the logt, ilogt, sbox and isbox tables for educational purposes. Instead we will need to generate them only once. Hence, we need a function to do that. We will call it init_aes(). We already know how to generate the logarithm tables. What about the S-Box'es? Well, the S-Box is generated like this: We take the inverse of the byte we need the substituted value for, and then we apply an affine transformation, described in page 15 of the specification. Here is the code:\r\n[code lang=\"c\"]\r\n#define AES_GEN       0x03   // gf(2^8) generator    (x + 1)\r\n#define AES_SBOX_CC   0x63   // S-Box C constant\r\n\r\nunsigned char g_aes_sbox[256], g_aes_isbox[256];\r\n\r\nvoid init_aes()\r\n{\r\n\tint i;\r\n\tunsigned char gen;\r\n\r\n\t// build logarithm table and it's inverse\r\n\tgen = 1;\r\n\tfor(i = 0; i &lt; 0xff; i++) {\r\n\t\tg_aes_logt[gen]  = i;\r\n\t\tg_aes_ilogt[i]   = gen;\r\n\t\tgen = aes_mul_manual(gen, AES_GEN);\r\n\t}\r\n\r\n\t// build S-Box and it's inverse\r\n\tfor(i = 0; i &lt;= 0xff; i++) {\r\n\t\tchar bi;\r\n\t\tunsigned char inv = aes_inv(i);\r\n\r\n\t\tg_aes_sbox[i] = 0;\r\n\t\tfor(bi = 0; bi &lt; 8; bi++) {\r\n\t\t\t// based on transformation 5.1\r\n\t\t\t// could also be done with a loop based on the matrix\r\n\t\t\t// bitwise AND 7 is just modulo 8\r\n\t\t\tg_aes_sbox[i] |= ((inv &amp; (1&lt;&lt;bi)?1:0)\r\n\t\t\t\t\t\t^ (inv &amp; (1 &lt;&lt; ((bi+4) &amp; 7))?1:0)\r\n\t\t\t\t\t\t^ (inv &amp; (1 &lt;&lt; ((bi+5) &amp; 7))?1:0)\r\n\t\t\t\t\t\t^ (inv &amp; (1 &lt;&lt; ((bi+6) &amp; 7))?1:0)\r\n\t\t\t\t\t\t^ (inv &amp; (1 &lt;&lt; ((bi+7) &amp; 7))?1:0)\r\n\t\t\t\t\t\t^ (AES_SBOX_CC &amp; (1 &lt;&lt; bi)?1:0)\r\n\t\t\t) &lt;&lt; bi;\r\n\t\t}\r\n\t\tg_aes_isbox[g_aes_sbox[i]] = i;\r\n\t}\r\n\t// warning: quickhack\r\n\tg_aes_sbox[1] = 0x7c;\r\n\tg_aes_isbox[0x7c] = 1;\r\n\tg_aes_isbox[0x63] = 0;\r\n}\r\n[/code]\r\nThe quickhack is there because of the issues with 0 not having an inverse.\r\n<h4>Defining a context</h4>\r\nWe will have to define a unique context for any key that we plan to use for encryption or decryption. The specification says that all transformations will be done on the 'state'. The state, is simply a 4x4 array. It's size is fixed, so we don't have to worry about it. And there is also a Round Key array, denoted w in the specification. This depends on the content and length of the key, and is generated by the Key Expansion routine, which we discuss later. It's size is specified as Nb (Nr + 1) words. Remember, Nb is a constant, specified as 4 (the number of columns in 'state'). Nr is the number of rounds to perform. This is dependant on the key length, (128-bit key: 10 rounds, 192-bit key: 12 rounds and 256-bit key: 14 rounds). So it might be 4 * (10 + 1) = 44, 4 * (12 + 1) = 52 or 4 * (14 + 1) = 60. We might define it in our context structure as the largest size, 60, so that it fits all key sizes. But that's not very efficient, is it? We are going to have a context allocating function (which will return a pointer to an allocated context). So, if our key schedule (round key array) is not of fixed length, what should it be, a pointer? Definately not. It would be dumb to have to allocate twice. It will be denoted as an empty array (unsigned long keysched[0];), which will serve as a label for the end of our context structure. And then we will allocate the size of our context structure plus the size of the round key array (which will be calculated). We are also going to store the number of rounds and Nk, the number of columns in the key (which can be 4, 6, or 8, depending on the size). This is how we define our context structure:\r\n\r\n<pre class=\"brush:c\">typedef struct {\r\n\tunsigned char state[4][4];\r\n\tint kcol;\r\n\tsize_t rounds;\r\n\tunsigned long keysched[0];\r\n} aes_ctx_t;</pre>\r\n<h4>The AES algorithm</h4>\r\nThe algorithm is divided in two major parts: Key Expansion and Encryption/Decryption routines. We are going to see Key Expansion first then the Encryption/Decryption routines.\r\n<h4>The Key Expansion routine</h4>\r\nWe're not going to examine the key expansion routine in-depth, since the specification already does that. So I'm going straight to the code, based on the pseudocode for it. Since it operates on the key schedule, we're going to include it in the context allocation function, which is shown here:\r\n\r\n<pre class=\"brush:c\">#define KEY_128 (128/8)\r\n#define KEY_192 (192/8)\r\n#define KEY_256 (256/8)\r\n\r\naes_ctx_t *aes_alloc_ctx(unsigned char *key, size_t keyLen)\r\n{\r\n\taes_ctx_t *ctx;\r\n\tsize_t rounds;\r\n\tsize_t ks_size;\r\n\r\n\tswitch(keyLen) {\r\n\t\tcase KEY_128: // 128-bit key\r\n\t\t\trounds = 10;\r\n\t\t\tbreak;\r\n\r\n\t\tcase KEY_192: // 192-bit key\r\n\t\t\trounds = 12;\r\n\t\t\tbreak;\r\n\r\n\t\tcase KEY_256: // 256-bit key\r\n\t\t\trounds = 14;\r\n\t\t\tbreak;\r\n\r\n\t\tdefaut:\r\n\t\t\treturn NULL;\r\n\t}\r\n\r\n\t// Nb*(Nr + 1) words, times the size of a word\r\n\tks_size = 4*(rounds+1)*sizeof(unsigned long);\r\n\tctx = malloc(sizeof(aes_ctx_t)+ks_size);\r\n\tif(ctx) {\r\n\t\tctx->rounds = rounds;\r\n\t\t// since there are four rows\r\n\t\t// Ncol = size / Nrow\r\n\t\tctx->kcol = keyLen/4;\r\n\t\t// copy the first words into the key schedule\r\n\t\tmemcpy(ctx->keysched, key, keyLen);\r\n\t\taes_keyexpansion(ctx);\r\n\t}\r\n\r\n\treturn ctx;\r\n}\r\n\r\nvoid aes_free_ctx(aes_ctx_t *ctx)\r\n{\r\n\tfree(ctx);\r\n}</pre>\r\n\r\nAnd the key expansion routine, aes_keyexpansion(), based on the pseudocode:\r\n\r\n<pre class=\"brush:c\">inline unsigned long aes_subword(unsigned long w)\r\n{\r\n\treturn g_aes_sbox[w & 0x000000ff] |\r\n\t\t(g_aes_sbox[(w & 0x0000ff00) >> 8] << 8) |\r\n\t\t(g_aes_sbox[(w & 0x00ff0000) >> 16] << 16) |\r\n\t\t(g_aes_sbox[(w & 0xff000000) >> 24] << 24);\r\n}\r\n\r\ninline unsigned long aes_rotword(unsigned long w)\r\n{\r\n\t// may seem a bit different from the spec\r\n\t// it was changed because unsigned long is represented with little-endian convention on x86\r\n\t// should not depend on architecture, but this is only a POC\r\n\treturn ((w & 0x000000ff) << 24) |\r\n\t\t((w & 0x0000ff00) >> 8) |\r\n\t\t((w & 0x00ff0000) >> 8) |\r\n\t\t((w & 0xff000000) >> 8);\r\n}\r\n\r\nvoid aes_keyexpansion(aes_ctx_t *ctx)\r\n{\r\n\tunsigned long temp;\r\n\tunsigned long rcon;\r\n\tregister int i;\r\n\r\n\trcon = 0x00000001;\r\n\tfor(i = ctx->kcol; i < (4*(ctx->rounds+1)); i++) {\r\n\t\ttemp = ctx->keysched[i-1];\r\n\t\tif(!(i%ctx->kcol)) {\r\n\t\t\ttemp = aes_subword(aes_rotword(temp)) ^ rcon;\r\n\t\t\trcon = aes_mul(rcon, 2);\r\n\t\t} else if(ctx->kcol > 6 && i%ctx->kcol == 4)\r\n\t\t\ttemp = aes_subword(temp);\r\n\t\tctx->keysched[i] = ctx->keysched[i-ctx->kcol] ^ temp;\r\n\t}\r\n}</pre>\r\n\r\nAnd that leaves us with:\r\n<h4>Encryption/Decryption routines</h4>\r\nFirst we discuss encryption, then decryption. Based on the pseudocode for the encryption we have this:\r\n\r\n<pre class=\"brush:c\">void aes_encrypt(aes_ctx_t *ctx, unsigned char input[16], unsigned char output[16])\r\n{\r\n\tint i;\r\n\r\n\t// copy input to state\r\n\tfor(i = 0; i < 16; i++)\r\n\t\tctx->state[i & 0x03][i >> 2] = input[i];\r\n\r\n\taes_addroundkey(ctx, 0);\r\n\r\n\tfor(i = 1; i < ctx->rounds; i++) {\r\n\t\taes_subbytes(ctx);\r\n\t\taes_shiftrows(ctx);\r\n\t\taes_mixcolumns(ctx);\r\n\t\taes_addroundkey(ctx, i);\r\n\t}\r\n\r\n\taes_subbytes(ctx);\r\n\taes_shiftrows(ctx);\r\n\taes_addroundkey(ctx, ctx->rounds);\r\n\r\n\t// copy state to output\r\n\tfor(i = 0; i < 16; i++)\r\n\t\toutput[i] = ctx->state[i & 0x03][i >> 2];\r\n}</pre>\r\n\r\nDon't worry too much about the bit operations. i &amp; 0x03 is just i % 4 (i modulo 4), while i &gt;&gt; 2 is just like i / 4 (rounded down division). That's basically what the specification says about copying the input to the state and state to the output, just that it's optimized for speed. So what does it do? Well, it copies the input to the state, does some operations on the state and copies the state back to the output (in the form of ciphertext). Simple eh?\r\n\r\nLet's say we have n rounds. We will identify each of them in the range 0 to n-1. Notice: starting from 0 not 1. In each of these rounds we do four transformations (in certain rounds, some transformations are skipped, read below).\r\n<ul>\r\n\t<li>SubBytes</li>\r\n\t<li>ShiftRows</li>\r\n\t<li>MixColumns</li>\r\n\t<li>AddRoundKey</li>\r\n</ul>\r\nIn round 0 only AddRoundKey is performed. In rounds 1 through n-2 all of the transformations are performed. In the final round, round n-1, all the transformations except MixColumns are performed. Let's go through each of these.\r\n<h5>SubBytes</h5>\r\nThis is a very simple operation. The S-Box is applied to each byte of the state, independently. This means that each byte of the state is substituted with it's corresponding value in the S-Box we build earlier. The code is very simple as well:\r\n\r\n<pre class=\"brush:c\">void aes_subbytes(aes_ctx_t *ctx)\r\n{\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 16; i++) {\r\n\t\tint x, y;\r\n\r\n\t\tx = i & 0x03;\r\n\t\ty = i >> 2;\r\n\t\tctx->state[x][y] = g_aes_sbox[ctx->state[x][y]];\r\n\t}\r\n}</pre>\r\n\r\nAgain, don't worry about i &amp; 0x03 and i &gt;&gt; 2, they're just indexes. If you try to do the operations by hand, you'll see that for each i, there will be a unique x and y, meaning we go through each byte. It's as simple as doing this:\r\n\r\n<pre class=\"brush:c\">int x, y;\r\n\r\nfor(x = 0; x < 4; x++)\r\n\tfor(y = 0; y < 4; y++)\r\n\t\tctx->state[x][y] = g_aes_sbox[ctx->state[x][y]];</pre>\r\n<h5>ShiftRows</h5>\r\nThis one is simple as well. It simply 'rotates' the bytes of the state, based on their row. The first row is not rotated. The second row is rotated once, the third is rotated twice, and the fourth is rotated thrice, to the left. This is illustrated with an animation, you can find it at <a href=\"http://www.cs.bc.edu/~straubin/cs381-05/blockciphers/rijndael_ingles2004.swf\">http://www.cs.bc.edu/~straubin/cs381-05/blockciphers/rijndael_ingles2004.swf</a>. Here is the code for it:\r\n\r\n<pre class=\"brush:c\">void aes_shiftrows(aes_ctx_t *ctx)\r\n{\r\n\tunsigned char nstate[4][4];\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 16; i++) {\r\n\t\tint x, y;\r\n\r\n\t\tx = i & 0x03;\r\n\t\ty = i >> 2;\r\n\t\tnstate[x][y] = ctx->state[x][(y+x) & 0x03];\r\n\t}\r\n\r\n\tmemcpy(ctx->state, nstate, sizeof(ctx->state));\r\n}</pre>\r\n\r\nThis however, operates depending on other bytes of the array. So we have made a new state array, and copy it at the end of the transformation back to the actual state.\r\n<h5>MixColumns</h5>\r\nThis is by far the most complicated operation. It takes each column of the state, treating it as a word, and does a multiplication on a word level. This is important! If addition of two words was just the XOR of their bytes, the multiplication is more complicated. We discussed this earlier. So if you go to page 18, you'll see what the value of the new state bytes should be. It's really straightforward. Here is the code:\r\n\r\n<pre class=\"brush:c\">void aes_mixcolumns(aes_ctx_t *ctx)\r\n{\r\n\tunsigned char nstate[4][4];\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 4; i++) {\r\n\t\tnstate[0][i] = aes_mul(0x02, ctx->state[0][i]) ^\r\n\t\t\t\taes_mul(0x03, ctx->state[1][i]) ^\r\n\t\t\t\tctx->state[2][i] ^\r\n\t\t\t\tctx->state[3][i];\r\n\t\tnstate[1][i] = ctx->state[0][i] ^\r\n\t\t\t\taes_mul(0x02, ctx->state[1][i]) ^\r\n\t\t\t\taes_mul(0x03, ctx->state[2][i]) ^\r\n\t\t\t\tctx->state[3][i];\r\n\t\tnstate[2][i] = ctx->state[0][i] ^\r\n\t\t\t\tctx->state[1][i] ^\r\n\t\t\t\taes_mul(0x02, ctx->state[2][i]) ^\r\n\t\t\t\taes_mul(0x03, ctx->state[3][i]);\r\n\t\tnstate[3][i] = aes_mul(0x03, ctx->state[0][i]) ^\r\n\t\t\t\tctx->state[1][i] ^\r\n\t\t\t\tctx->state[2][i] ^\r\n\t\t\t\taes_mul(0x02, ctx->state[3][i]);\r\n\t}\r\n\r\n\tmemcpy(ctx->state, nstate, sizeof(ctx->state));\r\n}</pre>\r\n\r\nAnd this is dependant on the other values as well, so we copy the values to a temporary state, and copy it back to the original state.\r\n<h5>AddRoundKey</h5>\r\nAddRoundKey isn't that straightforward. Actually all it does, is that it does a word level addition of each column of the state with a specified word in the key schedule, based on the round. That specific word, is indexed as round * 4 + column. Here is the code:\r\n\r\n<pre class=\"brush:c\">void aes_addroundkey(aes_ctx_t *ctx, int round)\r\n{\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 16; i++) {\r\n\t\tint x, y;\r\n\r\n\t\tx = i & 0x03;\r\n\t\ty = i >> 2;\r\n\t\tctx->state[x][y] = ctx->state[x][y] ^\r\n\t\t\t((ctx->keysched[round*4+y] & (0xff << (x*8))) >> (x*8));\r\n\t}\r\n}</pre>\r\n\r\nAnd that's all we need to encrypt 16 bytes of data.\r\nWhat about decryption?\r\nDecryption is done in two ways. There is the inverse cipher, where the order of the operations differs from the encryption routine, and there's the equivalent inverse cipher, where we must recompute the key schedule, and change it slightly. We are going to implement the inverse cipher, because it's better to only compute the key schedule once, and that will make functions re-entrant, so that they can be used in a multi-threaded application. There are workarounds to make the equivalent inverse cipher work in a multi-threaded application too, but they're slow, as the inverse key schedule needs to be computed every time when decrypting, or some extra space is needed in the context for storing both the key schedule and it's inverse. Note that the operations in the inverse cipher and the equivalent inverse cipher are slightly different from the operations used in encryption. Here is the code:\r\n\r\n<pre class=\"brush:c\">void aes_invshiftrows(aes_ctx_t *ctx)\r\n{\r\n\tunsigned char nstate[4][4];\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 16; i++) {\r\n\t\tint x, y;\r\n\r\n\t\tx = i & 0x03;\r\n\t\ty = i >> 2;\r\n\t\tnstate[x][(y+x) & 0x03] = ctx->state[x][y];\r\n\t}\r\n\r\n\tmemcpy(ctx->state, nstate, sizeof(ctx->state));\r\n}\r\n\r\nvoid aes_invsubbytes(aes_ctx_t *ctx)\r\n{\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 16; i++) {\r\n\t\tint x, y;\r\n\r\n\t\tx = i & 0x03;\r\n\t\ty = i >> 2;\r\n\t\tctx->state[x][y] = g_aes_isbox[ctx->state[x][y]];\r\n\t}\r\n}\r\n\r\nvoid aes_invmixcolumns(aes_ctx_t *ctx)\r\n{\r\n\tunsigned char nstate[4][4];\r\n\tint i;\r\n\r\n\tfor(i = 0; i < 4; i++) {\r\n\t\tnstate[0][i] = aes_mul(0x0e, ctx->state[0][i]) ^\r\n\t\t\t\taes_mul(0x0b, ctx->state[1][i]) ^\r\n\t\t\t\taes_mul(0x0d, ctx->state[2][i]) ^\r\n\t\t\t\taes_mul(0x09, ctx->state[3][i]);\r\n\t\tnstate[1][i] = aes_mul(0x09, ctx->state[0][i]) ^\r\n\t\t\t\taes_mul(0x0e, ctx->state[1][i]) ^\r\n\t\t\t\taes_mul(0x0b, ctx->state[2][i]) ^\r\n\t\t\t\taes_mul(0x0d, ctx->state[3][i]);\r\n\t\tnstate[2][i] = aes_mul(0x0d, ctx->state[0][i]) ^\r\n\t\t\t\taes_mul(0x09, ctx->state[1][i]) ^\r\n\t\t\t\taes_mul(0x0e, ctx->state[2][i]) ^\r\n\t\t\t\taes_mul(0x0b, ctx->state[3][i]);\r\n\t\tnstate[3][i] = aes_mul(0x0b, ctx->state[0][i]) ^\r\n\t\t\t\taes_mul(0x0d, ctx->state[1][i]) ^\r\n\t\t\t\taes_mul(0x09, ctx->state[2][i]) ^\r\n\t\t\t\taes_mul(0x0e, ctx->state[3][i]);\r\n\t}\r\n\r\n\tmemcpy(ctx->state, nstate, sizeof(ctx->state));\r\n}\r\n\r\nvoid aes_decrypt(aes_ctx_t *ctx, unsigned char input[16], unsigned char output[16])\r\n{\r\n\tint i, j;\r\n\r\n\t// copy input to state\r\n\tfor(i = 0; i < 16; i++)\r\n\t\tctx->state[i & 0x03][i >> 2] = input[i];\r\n\r\n\taes_addroundkey(ctx, ctx->rounds);\r\n\tfor(i = ctx->rounds-1; i >= 1; i--) {\r\n\t\taes_invshiftrows(ctx);\r\n\t\taes_invsubbytes(ctx);\r\n\t\taes_addroundkey(ctx, i);\r\n\t\taes_invmixcolumns(ctx);\r\n\t}\r\n\r\n\taes_invshiftrows(ctx);\r\n\taes_invsubbytes(ctx);\r\n\taes_addroundkey(ctx, 0);\r\n\r\n\t// copy state to output\r\n\tfor(i = 0; i < 16; i++)\r\n\t\toutput[i] = ctx->state[i & 0x03][i >> 2];\r\n}</pre>\r\n\r\nAnd that concludes this article. I hope you find it helpful :).\r\nBelow is the link to the full source code, including an example of using the cipher.\r\n\r\n<a rel=\"license\" href=\"http://creativecommons.org/licenses/by/3.0/\"><img style=\"border-width: 0;\" src=\"http://i.creativecommons.org/l/by/3.0/80x15.png\" alt=\"Creative Commons License\" /></a>\r\nThis work by <span>X-N2O</span> is licensed under a <a rel=\"license\" href=\"http://creativecommons.org/licenses/by/3.0/\">Creative Commons Attribution 3.0 Unported License</a>.\r\n\r\n<a href=\"http://www.x-n2o.com/aes.zip\">http://www.x-n2o.com/aes.zip</a>",
+  "comments": [
+    {
+      "id": 6,
+      "parent": 0,
+      "author": "unfunf",
+      "publishedAt": "2009-11-30T01:48:05Z",
+      "localDate": "2009-11-30 02:48:05",
+      "content": "Very good."
+    },
+    {
+      "id": 7,
+      "parent": 0,
+      "author": "Interesting Links of the day &#8211; to be digested at leisure &laquo; Original Thoughts",
+      "publishedAt": "2010-04-19T03:10:34Z",
+      "localDate": "2010-04-19 05:10:34",
+      "content": "[...] Interesting Links of the day &#8211; to be digested at&nbsp;leisure By 0riginalthought  AES: http://www.x-n2o.com/aes-explained/ [...] "
+    },
+    {
+      "id": 8,
+      "parent": 0,
+      "author": "Nick",
+      "publishedAt": "2010-05-01T01:27:15Z",
+      "localDate": "2010-05-01 03:27:15",
+      "content": "Very nice!"
+    },
+    {
+      "id": 9,
+      "parent": 0,
+      "author": "casperDT",
+      "publishedAt": "2010-05-02T10:54:10Z",
+      "localDate": "2010-05-02 12:54:10",
+      "content": "This article is just PERFECT\n\nthank you, keep going"
+    },
+    {
+      "id": 10,
+      "parent": 0,
+      "author": "ali farmani",
+      "publishedAt": "2010-05-20T12:15:14Z",
+      "localDate": "2010-05-20 14:15:14",
+      "content": "hi\ni implement aes algorithm your algorithm is funny and good ."
+    },
+    {
+      "id": 11,
+      "parent": 0,
+      "author": "Nathan",
+      "publishedAt": "2010-07-23T01:34:59Z",
+      "localDate": "2010-07-23 03:34:59",
+      "content": "Is m(x) irreducible? Would you mind elaborating on the necessity of modulo an irreducible polynomial over finite fields?"
+    },
+    {
+      "id": 12,
+      "parent": 0,
+      "author": "X-N2O",
+      "publishedAt": "2010-07-23T10:03:03Z",
+      "localDate": "2010-07-23 12:03:03",
+      "content": "Hello Nathan,\n\nYes, m(x) is irreducible. It needs to be irreducible, because else the result of the multiplication cannot have a multiplicative inverse. http://en.wikipedia.org/wiki/Modular_multiplicative_inverse states clearly that \"The multiplicative inverse of a modulo m exists iff a and m are coprime (i.e., if gcd(a, m) = 1).\"\n\nThe definition of irreducible polynomials is as follows (fips-197.pdf page 10): \"A polynomial is\nirreducible if its only divisors are one and itself.\" That's pretty much also the definition of prime numbers."
+    },
+    {
+      "id": 13,
+      "parent": 0,
+      "author": "CPUs Notebooks mit AES-NI - AES-Hardwarebeschleunigung für TrueCrypt-Verschlüsselung ... ScareWare.de",
+      "publishedAt": "2010-08-27T09:01:08Z",
+      "localDate": "2010-08-27 11:01:08",
+      "content": "[...] AES erklärt, mit C-Schnipseln [...] "
+    },
+    {
+      "id": 14,
+      "parent": 0,
+      "author": "Janna",
+      "publishedAt": "2010-09-12T22:06:53Z",
+      "localDate": "2010-09-13 00:06:53",
+      "content": "Excellent job. Thanx a lot."
+    },
+    {
+      "id": 15,
+      "parent": 0,
+      "author": "Pat",
+      "publishedAt": "2011-01-18T22:31:06Z",
+      "localDate": "2011-01-18 23:31:06",
+      "content": "The link is dead"
+    },
+    {
+      "id": 16,
+      "parent": 15,
+      "author": "X-N2O",
+      "publishedAt": "2011-01-19T19:18:21Z",
+      "localDate": "2011-01-19 20:18:21",
+      "content": "Updated. Thanks for letting me know."
+    },
+    {
+      "id": 17,
+      "parent": 0,
+      "author": "Zoresvit",
+      "publishedAt": "2011-02-10T23:03:25Z",
+      "localDate": "2011-02-11 00:03:25",
+      "content": "Thanks a lot — it's the easiest to understand implementation I've seen (Except the trick with the key array :) Very useful for educational purposes."
+    },
+    {
+      "id": 18,
+      "parent": 0,
+      "author": "Hesam",
+      "publishedAt": "2011-02-26T13:08:29Z",
+      "localDate": "2011-02-26 14:08:29",
+      "content": "thank you :)"
+    },
+    {
+      "id": 19,
+      "parent": 0,
+      "author": "kera",
+      "publishedAt": "2011-03-25T13:25:25Z",
+      "localDate": "2011-03-25 14:25:25",
+      "content": "what is the mode of your code please?CBC or ECB"
+    },
+    {
+      "id": 20,
+      "parent": 19,
+      "author": "X-N2O",
+      "publishedAt": "2011-03-29T21:06:53Z",
+      "localDate": "2011-03-29 23:06:53",
+      "content": "It does not use any blocking mode, since I only needed to test it with one block (in main.c). Both ECB and CBC however are fairly simple to implement."
+    },
+    {
+      "id": 1490,
+      "parent": 0,
+      "author": "Advanced Encryption Standard From Wikipedia, the free encyclopedia | WorldWright&#039;s &#8230;",
+      "publishedAt": "2011-10-15T15:30:01Z",
+      "localDate": "2011-10-15 15:30:01",
+      "content": "[...] An in-depth description of the Advanced Encryption Standard and the maths behind it. C implementatio... [...]"
+    },
+    {
+      "id": 1837,
+      "parent": 0,
+      "author": "Kewal",
+      "publishedAt": "2011-11-10T14:40:27Z",
+      "localDate": "2011-11-10 14:40:27",
+      "content": "Thank's a lot.. :)"
+    },
+    {
+      "id": 3848,
+      "parent": 0,
+      "author": "hck",
+      "publishedAt": "2012-06-06T20:43:24Z",
+      "localDate": "2012-06-06 21:43:24",
+      "content": "nice code, thanks!!!!!!"
+    },
+    {
+      "id": 4752,
+      "parent": 0,
+      "author": "david",
+      "publishedAt": "2012-08-12T15:59:06Z",
+      "localDate": "2012-08-12 16:59:06",
+      "content": "U have a well explained AES. Thanks alot for your good work"
+    },
+    {
+      "id": 6490,
+      "parent": 0,
+      "author": "Lucky thirteen &#8211; nowy typ ataku na SSL / TLS. Nie panikuj?",
+      "publishedAt": "2013-02-09T08:47:40Z",
+      "localDate": "2013-02-09 09:47:40",
+      "content": "[...] przesyłanych przez nas danych &#8211; najbardziej znanym nowoczesnym algorytmem tego typu jest AES (inne to choćby 3DES, czy od dawna niebezpieczny DES).  Tryb działania algorytmu blokowego to [...]"
+    }
+  ]
+}
