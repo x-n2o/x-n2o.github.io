@@ -1,0 +1,29 @@
+{
+  "name": "x-n2o-blog",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1",
+    "build": "astro build",
+    "preview": "astro preview --host 127.0.0.1",
+    "check": "astro check",
+    "verify": "node scripts/verify-migration.mjs"
+  },
+  "dependencies": {
+    "@wordpress/autop": "4.56.0",
+    "astro": "7.3.5",
+    "entities": "7.0.0",
+    "sanitize-html": "2.18.0",
+    "shiki": "4.5.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@types/sanitize-html": "^2.16.0",
+    "cheerio": "1.2.0",
+    "typescript": "^5.9.3"
+  }
+}

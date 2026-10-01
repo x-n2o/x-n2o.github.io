@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PostList from '../components/PostList.astro';
+import { posts } from '../lib/posts';
+const years = [...new Set(posts.map(p => p.localDate.slice(0, 4)))];
+---
+<Layout title="Archive">
+  <section class="wrap archive-content">
+    <header class="page-heading"><p class="eyebrow">2009 — 2012</p><h1>The archive.</h1><p>All {posts.length} notes, in their original order.</p></header>
+    {years.map(year => <section aria-labelledby={`year-${year}`}><h2 class="archive-year" id={`year-${year}`}>{year}</h2><PostList posts={posts.filter(p => p.localDate.startsWith(year))} /></section>)}
+  </section>
+</Layout>

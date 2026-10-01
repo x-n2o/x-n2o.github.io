@@ -1,0 +1,22 @@
+[
+  {
+    "path": "public/aes.zip",
+    "sha256": "1ddfc2af1d242430a7ebe5f585a0e17c2e196fe9b76dcdfe4d6b0cd443b50700",
+    "bytes": 3763
+  },
+  {
+    "path": "public/bin400-dc20.txt",
+    "sha256": "de40f909a441601883f8662aa85e106e9df12f4cb5b29a52c78a43a96192e5f1",
+    "bytes": 8296
+  },
+  {
+    "path": "public/favicon.ico",
+    "sha256": "a313881a3a83b3d1d7af302a76588084dff17d946e67a7da0a7f89d2583f62fe",
+    "bytes": 15086
+  },
+  {
+    "path": "public/images/original-header.jpg",
+    "sha256": "7d13ee3539793102d46b2ff0de92e0f6880a5e4f105a657a89cb729d10036e1f",
+    "bytes": 21398
+  }
+]

@@ -1,0 +1,13 @@
+---
+// Preserve WordPress feed URLs as static XML documents. GitHub Pages serves index.html.
+import { GET as postFeed } from './rss.xml';
+import { GET as commentFeed } from './comments.xml';
+import type { APIContext } from 'astro';
+export function getStaticPaths() {
+  return [{ params:{feed:'feed'} }, { params:{feed:'comments/feed'} }];
+}
+const handler = Astro.params.feed === 'comments/feed' ? commentFeed : postFeed;
+const response = await handler({site:Astro.site} as APIContext);
+const xml = await response.text();
+---
+<Fragment set:html={xml} />
